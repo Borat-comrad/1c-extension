@@ -1,0 +1,261 @@
+body {
+  margin: 0;
+  padding: 0;
+  font-family: Arial, sans-serif;
+  color: #1f2933;
+  background: #f3f6f8;
+}
+
+.container {
+  width: 420px;
+  padding: 16px;
+  box-sizing: border-box;
+}
+
+h1 {
+  font-size: 18px;
+  margin: 0 0 16px 0;
+}
+
+h2 {
+  font-size: 15px;
+  margin: 16px 0 8px 0;
+}
+
+label {
+  display: block;
+  margin-top: 10px;
+  margin-bottom: 4px;
+  font-size: 13px;
+  font-weight: bold;
+}
+
+input {
+  width: 100%;
+  padding: 8px;
+  box-sizing: border-box;
+  font-size: 14px;
+  border: 1px solid #ccd6dd;
+  border-radius: 6px;
+  background: #ffffff;
+}
+
+button {
+  width: 100%;
+  margin-top: 14px;
+  padding: 10px;
+  font-size: 14px;
+  font-weight: bold;
+  cursor: pointer;
+  border: none;
+  border-radius: 6px;
+  background: #2d6cdf;
+  color: white;
+}
+
+button:disabled {
+  background: #999999;
+  cursor: not-allowed;
+}
+
+.status {
+  margin-top: 10px;
+  font-size: 13px;
+  min-height: 18px;
+}
+
+.status.ok {
+  color: #137333;
+}
+
+.status.error {
+  color: #c62828;
+}
+
+.result-card {
+  width: 100%;
+  box-sizing: border-box;
+  background: #ffffff;
+  border: 1px solid #dce4ea;
+  border-radius: 8px;
+  padding: 12px;
+  font-size: 13px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+  box-shadow: 0 2px 8px rgba(31, 41, 51, 0.06);
+}
+
+.result-card.empty {
+  color: #6b7680;
+}
+
+.summary-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.summary-item,
+.section-card,
+.metric-card,
+.price-item,
+.record-item {
+  box-sizing: border-box;
+  border: 1px solid #e1e8ee;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.summary-item {
+  padding: 10px;
+  background: #f8fafc;
+}
+
+.section-card {
+  margin-top: 10px;
+  padding: 12px;
+}
+
+.section-card h3 {
+  margin: 0 0 10px 0;
+  font-size: 14px;
+}
+
+.section-card h4 {
+  margin: 12px 0 8px 0;
+  font-size: 13px;
+}
+
+.metrics-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.metric-card {
+  padding: 12px;
+}
+
+.metric-card.primary {
+  border-color: #79a7ff;
+  background: #eef5ff;
+}
+
+.metric-card.accent {
+  border-color: #8fcf9b;
+  background: #effaf2;
+}
+
+.metric-label,
+.field-label {
+  margin-bottom: 4px;
+  color: #64717d;
+  font-size: 11px;
+  font-weight: bold;
+  text-transform: uppercase;
+}
+
+.metric-value {
+  font-size: 18px;
+  font-weight: bold;
+  color: #111827;
+}
+
+.metric-note {
+  margin-top: 6px;
+  color: #36424d;
+}
+
+.price-list {
+  margin-top: 10px;
+}
+
+.price-item,
+.record-item {
+  margin-top: 8px;
+  padding: 10px;
+  background: #fbfdff;
+}
+
+.price-title,
+.record-title {
+  margin-bottom: 8px;
+  font-weight: bold;
+}
+
+.field-row {
+  display: grid;
+  grid-template-columns: 135px minmax(0, 1fr);
+  gap: 8px;
+  padding: 7px 0;
+  border-top: 1px solid #edf2f6;
+}
+
+.field-row:first-child {
+  border-top: none;
+}
+
+.field-value {
+  min-width: 0;
+  color: #1f2933;
+  overflow-wrap: anywhere;
+}
+
+.empty-value {
+  color: #8a949e;
+  font-style: italic;
+}
+
+.additional-data {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px dashed #cbd6df;
+}
+
+.records-count {
+  margin-bottom: 8px;
+  color: #52616f;
+  font-weight: bold;
+}
+
+.details-block {
+  margin-top: 10px;
+}
+
+.details-block summary {
+  cursor: pointer;
+  color: #2d6cdf;
+  font-weight: bold;
+}
+
+.technical-response {
+  width: 100%;
+  max-height: 220px;
+  margin: 8px 0 0 0;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  box-sizing: border-box;
+  border: 1px solid #dce4ea;
+  border-radius: 6px;
+  padding: 10px;
+  background: #f8fafc;
+  color: #334150;
+  font-size: 12px;
+}
+
+.error-card {
+  border-color: #efb4b4;
+  background: #fff7f7;
+}
+
+.secondary-button {
+  background: #eeeeee;
+  color: #333333;
+  margin-top: 8px;
+}
+
+.secondary-button:hover {
+  background: #dddddd;
+}

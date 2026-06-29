@@ -1,0 +1,76 @@
+# OS/system files
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+*~
+.nfs*
+
+# Editor/IDE files
+.idea/
+.vscode/
+*.swp
+*.swo
+*.swn
+*.tmp
+*.bak
+*.orig
+
+# Node/npm artifacts
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.npm/
+.yarn/
+.pnpm-store/
+
+# Build output
+dist/
+build/
+out/
+
+# Environment/secrets
+.env
+.env.*
+!.env.example
+!.env.*.example
+credentials*
+secrets*
+secret*
+*.secret
+*.secret.*
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+auth.local.*
+local.config.*
+config.local.*
+*.local.json
+
+# Logs/temp/cache
+*.log
+logs/
+tmp/
+temp/
+cache/
+.cache/
+coverage/
+.nyc_output/
+
+# Chrome extension local/dev artifacts
+*.crx
+packed/
+release/
+web-ext-artifacts/
+
+__pycache__/
+*.py[cod]
+.pytest_cache/

@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <title>История цен из 1С</title>
+  <link rel="stylesheet" href="popup.css" />
+</head>
+<body>
+  <div class="container">
+    <h1>История цен из 1С</h1>
+
+    <label for="code">Код производителя:</label>
+    <input
+      id="code"
+      type="text"
+      placeholder="Например: 0-905-21-102-2"
+      autocomplete="off"
+    />
+
+    <label for="login">Логин 1С:</label>
+    <input
+      id="login"
+      type="text"
+      placeholder="Например: llm_agent"
+      autocomplete="username"
+    />
+
+    <label for="password">Пароль 1С:</label>
+    <input
+      id="password"
+      type="password"
+      placeholder="Введите пароль"
+      autocomplete="current-password"
+    />
+
+    <button id="fetchButton">Получить историю цен</button>
+
+    <button id="resetButton" class="secondary-button">Сбросить сохранённые данные</button>
+
+    <div id="status" class="status"></div>
+
+    <h2>Результат:</h2>
+    <div id="result" class="result-card empty">Пока нет данных</div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
