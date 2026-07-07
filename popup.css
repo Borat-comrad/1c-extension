@@ -89,6 +89,91 @@ button:disabled {
   color: #6b7680;
 }
 
+.multi-results {
+  width: 100%;
+  box-sizing: border-box;
+  font-size: 13px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.multi-summary-card,
+.code-result-card {
+  box-sizing: border-box;
+  border: 1px solid #dce4ea;
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 12px;
+  box-shadow: 0 2px 8px rgba(31, 41, 51, 0.06);
+}
+
+.multi-summary-card h3,
+.code-result-card h3 {
+  margin: 0;
+  font-size: 14px;
+}
+
+.multi-summary-grid {
+  margin-top: 10px;
+  margin-bottom: 0;
+}
+
+.multi-progress {
+  margin-top: 8px;
+  color: #52616f;
+  font-weight: bold;
+}
+
+.code-result-card {
+  margin-top: 12px;
+}
+
+.code-result-card.success {
+  border-color: #b6d8bf;
+}
+
+.code-result-card.failed {
+  border-color: #efb4b4;
+}
+
+.code-result-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.code-result-header h3 {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.code-result-badge {
+  flex: 0 0 auto;
+  border-radius: 999px;
+  padding: 3px 8px;
+  font-size: 11px;
+  font-weight: bold;
+}
+
+.code-result-badge.ok {
+  background: #effaf2;
+  color: #137333;
+}
+
+.code-result-badge.error {
+  background: #fff1f1;
+  color: #c62828;
+}
+
+.nested-result {
+  padding: 0;
+  border: none;
+  box-shadow: none;
+  background: transparent;
+}
+
 .summary-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -200,6 +285,7 @@ button:disabled {
   min-width: 0;
   color: #1f2933;
   overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .empty-value {

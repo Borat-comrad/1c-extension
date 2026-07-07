@@ -1,5 +1,7 @@
 const BASE_URL =
   "http://192.168.11.240:8282/crm/hs/service_avtm_vne1c/information_code_producer";
+const MAX_CODES_PER_SEARCH = 20;
+const MAX_PARALLEL_REQUESTS = 2;
 
 const codeInput = document.getElementById("code");
 const loginInput = document.getElementById("login");
@@ -44,14 +46,20 @@ resetButton.addEventListener("click", async () => {
 });
 
 fetchButton.addEventListener("click", async () => {
-  const code = codeInput.value.trim();
+  const rawCodeInput = codeInput.value.trim();
+  const codes = parseCodeInput(rawCodeInput);
   const login = loginInput.value.trim();
   const password = passwordInput.value;
 
   clearStatus();
 
-  if (!code) {
-    showError("Введите код производителя.");
+  if (codes.length === 0) {
+    showError("Введите хотя бы один код");
+    return;
+  }
+
+  if (codes.length > MAX_CODES_PER_SEARCH) {
+    showError(`Слишком много кодов за один поиск. Максимум: ${MAX_CODES_PER_SEARCH}.`);
     return;
   }
 
@@ -66,38 +74,31 @@ fetchButton.addEventListener("click", async () => {
   }
 
   await chrome.storage.local.set({
-    lastCode: code,
+    lastCode: rawCodeInput,
     login: login
   });
 
-  const url = `${BASE_URL}/${encodeURIComponent(code)}`;
-
   fetchButton.disabled = true;
   fetchButton.textContent = "Запрос выполняется...";
-  setResultMessage("Ждём ответ от 1С...");
+  setResultMessage(codes.length === 1 ? "Ждём ответ от 1С..." : `Обработано 0 из ${codes.length}`);
 
   try {
-    const authHeader = makeBasicAuthHeader(login, password);
-
-    const response = await fetch(url, {
-      method: "GET",
-      headers: {
-        "Authorization": authHeader,
-        "Accept": "application/json, text/plain, */*"
-      }
-    });
-
-    const responseText = await response.text();
-
-    if (!response.ok) {
-      showError(makeHttpErrorMessage(response.status, response.statusText));
-      handleHttpErrorResponse(response.status, response.statusText, responseText);
+    if (codes.length === 1) {
+      const result = await fetchPriceHistoryForCode(codes[0], login, password);
+      renderSingleFetchResult(result);
       return;
     }
 
-    showOk(`Запрос успешен. HTTP-статус: ${response.status}`);
-    handleSuccessfulResponse(responseText, code);
+    const results = await runWithConcurrencyLimit(
+      codes,
+      MAX_PARALLEL_REQUESTS,
+      (code) => fetchPriceHistoryForCode(code, login, password),
+      (completed, total) => {
+        renderMultiProgress(completed, total);
+      }
+    );
 
+    renderMultiResults(results);
   } catch (error) {
     showError(makeNetworkErrorMessage(error));
     renderTechnicalFallback("Запрос не выполнен.", String(error && error.stack ? error.stack : error));
@@ -120,6 +121,181 @@ function makeBasicAuthHeader(login, password) {
   const encoded = btoa(binaryString);
 
   return `Basic ${encoded}`;
+}
+
+function parseCodeInput(input) {
+  const seenCodes = new Set();
+  const codes = [];
+
+  String(input || "")
+    .split(",")
+    .map((code) => code.trim())
+    .filter((code) => code.length > 0)
+    .forEach((code) => {
+      if (!seenCodes.has(code)) {
+        seenCodes.add(code);
+        codes.push(code);
+      }
+    });
+
+  return codes;
+}
+
+async function runWithConcurrencyLimit(items, limit, worker, onItemSettled) {
+  const results = new Array(items.length);
+  const normalizedLimit = Math.max(1, Math.floor(limit || 1));
+  let nextIndex = 0;
+  let activeCount = 0;
+  let completedCount = 0;
+
+  if (items.length === 0) {
+    return results;
+  }
+
+  return new Promise((resolve) => {
+    const runNext = () => {
+      if (completedCount === items.length) {
+        resolve(results);
+        return;
+      }
+
+      while (activeCount < normalizedLimit && nextIndex < items.length) {
+        const currentIndex = nextIndex;
+        const item = items[currentIndex];
+        nextIndex += 1;
+        activeCount += 1;
+
+        Promise.resolve()
+          .then(() => worker(item, currentIndex))
+          .then((result) => {
+            results[currentIndex] = result;
+          })
+          .catch((error) => {
+            results[currentIndex] = {
+              code: item,
+              ok: false,
+              error: makeNetworkErrorMessage(error),
+              rawText: String(error && error.stack ? error.stack : error)
+            };
+          })
+          .finally(() => {
+            activeCount -= 1;
+            completedCount += 1;
+
+            if (typeof onItemSettled === "function") {
+              onItemSettled(completedCount, items.length, results[currentIndex], currentIndex);
+            }
+
+            runNext();
+          });
+      }
+    };
+
+    runNext();
+  });
+}
+
+async function fetchPriceHistoryForCode(code, login, password) {
+  const url = `${BASE_URL}/${encodeURIComponent(code)}`;
+
+  try {
+    const response = await fetch(url, {
+      method: "GET",
+      headers: {
+        "Authorization": makeBasicAuthHeader(login, password),
+        "Accept": "application/json, text/plain, */*"
+      }
+    });
+
+    const responseText = await response.text();
+
+    if (!response.ok) {
+      return buildHttpErrorResult(code, response.status, response.statusText, responseText);
+    }
+
+    try {
+      return {
+        code,
+        ok: true,
+        status: response.status,
+        data: JSON.parse(responseText)
+      };
+    } catch {
+      return {
+        code,
+        ok: false,
+        status: response.status,
+        error: "Ответ получен, но JSON не удалось разобрать.",
+        rawText: responseText || "Тело ответа пустое.",
+        errorType: "invalid_json"
+      };
+    }
+  } catch (error) {
+    return {
+      code,
+      ok: false,
+      error: makeNetworkErrorMessage(error),
+      rawText: String(error && error.stack ? error.stack : error),
+      errorType: "network"
+    };
+  }
+}
+
+function buildHttpErrorResult(code, status, statusText, responseText) {
+  const result = {
+    code,
+    ok: false,
+    status,
+    error: makeHttpErrorMessage(status, statusText),
+    rawText: responseText || "Тело ответа пустое.",
+    errorType: "http"
+  };
+
+  if (!responseText) {
+    return result;
+  }
+
+  try {
+    const data = JSON.parse(responseText);
+    result.data = data;
+    result.error = extractErrorMessage(data) || result.error;
+  } catch {
+    // Keep the raw text in details; the main error message stays readable.
+  }
+
+  return result;
+}
+
+function extractErrorMessage(data) {
+  if (!data || typeof data !== "object" || Array.isArray(data)) {
+    return "";
+  }
+
+  const preferredKeys = ["message", "error", "detail", "description", "Сообщение", "Ошибка"];
+  const key = preferredKeys.find((candidate) => !isEmptyValue(data[candidate]));
+
+  if (!key) {
+    return "";
+  }
+
+  return typeof data[key] === "object" ? "1С вернула ошибку в структурированном формате." : String(data[key]);
+}
+
+function renderSingleFetchResult(result) {
+  if (result.ok) {
+    showOk(`Запрос успешен. HTTP-статус: ${result.status}`);
+    renderResult(result.data, result.code);
+    return;
+  }
+
+  showError(result.error || "Запрос завершился ошибкой.");
+
+  if (result.errorType === "http" && result.data) {
+    renderBackendErrorResponse(result.status, "", result.data, result.rawText);
+    return;
+  }
+
+  renderTechnicalFallback(result.error || "Запрос завершился ошибкой.", result.rawText || "Технический ответ пустой.");
 }
 
 function handleSuccessfulResponse(responseText, code) {
@@ -147,16 +323,25 @@ function handleHttpErrorResponse(status, statusText, responseText) {
 }
 
 function renderResult(data, code) {
+  const resultView = buildResultView(data, code);
+  resultBlock.className = resultView.className;
+  resultBlock.innerHTML = resultView.html;
+}
+
+function buildResultView(data, code) {
   if (!isExpectedResponseShape(data)) {
-    renderTechnicalFallback(
-      "Ответ получен, но формат отличается от ожидаемого.",
-      JSON.stringify(data, null, 2)
-    );
-    return;
+    return {
+      className: "result-card",
+      html: renderTechnicalFallbackSection(
+        "Ответ получен, но формат отличается от ожидаемого.",
+        JSON.stringify(data, null, 2)
+      )
+    };
   }
 
-  resultBlock.className = "result-card";
-  resultBlock.innerHTML = `
+  return {
+    className: "result-card",
+    html: `
     <section class="summary-grid" aria-label="Краткая информация">
       ${renderSummaryField("Код производителя", code)}
       ${renderSummaryField("Расширенное наименование", data["РасширенноеНаименование"])}
@@ -169,7 +354,8 @@ function renderResult(data, code) {
     ${renderSapCodesSection(data)}
     ${renderInfoSection(data)}
     ${renderAdditionalInfoSection(data)}
-  `;
+  `
+  };
 }
 
 function renderPricesSection(prices) {
@@ -295,7 +481,11 @@ function calculateAveragePrice(prices) {
 
 function renderBackendErrorResponse(status, statusText, data, rawText) {
   resultBlock.className = "result-card";
-  resultBlock.innerHTML = `
+  resultBlock.innerHTML = renderBackendErrorSection(status, statusText, data, rawText);
+}
+
+function renderBackendErrorSection(status, statusText, data, rawText) {
+  return `
     <section class="section-card error-card">
       <h3>1С вернула ошибку</h3>
       ${renderFieldRow("HTTP-статус", `${status} ${statusText || ""}`.trim())}
@@ -450,7 +640,11 @@ function renderPriceValue(value) {
 
 function renderTechnicalFallback(message, rawText) {
   resultBlock.className = "result-card";
-  resultBlock.innerHTML = `
+  resultBlock.innerHTML = renderTechnicalFallbackSection(message, rawText);
+}
+
+function renderTechnicalFallbackSection(message, rawText) {
+  return `
     <section class="section-card error-card">
       <h3>${escapeHtml(message)}</h3>
       <details class="details-block">
@@ -458,6 +652,91 @@ function renderTechnicalFallback(message, rawText) {
         <pre class="technical-response">${escapeHtml(rawText)}</pre>
       </details>
     </section>
+  `;
+}
+
+function renderMultiProgress(completed, total) {
+  resultBlock.className = "multi-results";
+  resultBlock.innerHTML = `
+    <section class="multi-summary-card">
+      <h3>Результаты поиска</h3>
+      <div class="multi-progress">Обработано ${escapeHtml(completed)} из ${escapeHtml(total)}</div>
+    </section>
+  `;
+}
+
+function renderMultiResults(results) {
+  const successfulCount = results.filter((result) => result && result.ok).length;
+  const failedCount = results.length - successfulCount;
+
+  resultBlock.className = "multi-results";
+  resultBlock.innerHTML = `
+    <section class="multi-summary-card">
+      <h3>Результаты поиска</h3>
+      <div class="summary-grid multi-summary-grid" aria-label="Итоги поиска">
+        ${renderSummaryField("Кодов", results.length)}
+        ${renderSummaryField("Успешно", successfulCount)}
+        ${renderSummaryField("Ошибок", failedCount)}
+      </div>
+    </section>
+    ${results.map((result) => renderMultiResultCard(result)).join("")}
+  `;
+
+  if (failedCount === 0) {
+    showOk(`Поиск завершён. Успешно: ${successfulCount}. Ошибок: 0.`);
+    return;
+  }
+
+  showError(`Поиск завершён. Успешно: ${successfulCount}. Ошибок: ${failedCount}.`);
+}
+
+function renderMultiResultCard(result) {
+  if (result && result.ok) {
+    return renderMultiSuccessCard(result);
+  }
+
+  return renderMultiErrorCard(result || {
+    code: "",
+    ok: false,
+    error: "Запрос завершился ошибкой."
+  });
+}
+
+function renderMultiSuccessCard(result) {
+  const resultView = buildResultView(result.data, result.code);
+
+  return `
+    <article class="code-result-card success">
+      <header class="code-result-header">
+        <h3>Код: ${escapeHtml(result.code)}</h3>
+        <span class="code-result-badge ok">HTTP ${escapeHtml(result.status)}</span>
+      </header>
+      <div class="${escapeHtml(resultView.className)} nested-result">
+        ${resultView.html}
+      </div>
+    </article>
+  `;
+}
+
+function renderMultiErrorCard(result) {
+  const statusValue = result.status ? `HTTP ${result.status}` : "";
+  const rawText = result.rawText || "Технический ответ пустой.";
+
+  return `
+    <article class="code-result-card failed">
+      <header class="code-result-header">
+        <h3>Код: ${escapeHtml(result.code || "")}</h3>
+        <span class="code-result-badge error">Ошибка</span>
+      </header>
+      <section class="section-card error-card">
+        ${statusValue ? renderFieldRow("HTTP-статус", statusValue) : ""}
+        ${renderFieldRow("Сообщение", result.error || "Запрос завершился ошибкой.")}
+        <details class="details-block">
+          <summary>Технический ответ</summary>
+          <pre class="technical-response">${escapeHtml(rawText)}</pre>
+        </details>
+      </section>
+    </article>
   `;
 }
 
