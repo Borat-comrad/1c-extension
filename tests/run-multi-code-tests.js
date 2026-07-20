@@ -82,9 +82,9 @@ function stripDetails(html) {
 
 function containsRawJson(html) {
   const mainHtml = stripDetails(html);
-  return /"ИсторияЦен"\s*:/.test(mainHtml)
-    || /"ИсторияПоставок"\s*:/.test(mainHtml)
-    || /{\s*"[^"]+"\s*:/.test(mainHtml);
+  return /&quot;ИсторияЦен&quot;\s*:/.test(mainHtml)
+    || /&quot;ИсторияПоставок&quot;\s*:/.test(mainHtml)
+    || /{\s*&quot;[^&]+&quot;\s*:/.test(mainHtml);
 }
 
 function addCheck(checks, name, passed) {
@@ -143,6 +143,8 @@ async function runTooManyCodesCase() {
 function runMixedRenderCase() {
   const { context, elements } = createContext();
   const successResponse = fixture.testCases[0].response;
+  const successRawText = JSON.stringify(successResponse);
+  const errorData = { message: "Код не найден", code: "B" };
   const checks = [];
 
   context.renderMultiResults([
@@ -150,14 +152,18 @@ function runMixedRenderCase() {
       code: "A",
       ok: true,
       status: 200,
+      contentType: "application/json; charset=utf-8",
+      rawText: successRawText,
       data: successResponse
     },
     {
       code: "B",
       ok: false,
       status: 404,
+      contentType: "application/json",
       error: "Код не найден",
-      rawText: JSON.stringify({ message: "Код не найден", code: "B" })
+      rawText: JSON.stringify(errorData),
+      data: errorData
     }
   ]);
 
@@ -166,11 +172,74 @@ function runMixedRenderCase() {
   addCheck(checks, "Успешная карточка отображается", html.includes("Код: A") && html.includes("metric-card primary"));
   addCheck(checks, "Ошибочная карточка отображается", html.includes("Код: B") && html.includes("Код не найден"));
   addCheck(checks, "Общий поиск не падает и показывает summary", html.includes("Результаты поиска") && html.includes("Успешно") && html.includes("Ошибок"));
-  addCheck(checks, "Сырой JSON не попадает в основной UI", !containsRawJson(html));
+  addCheck(checks, "В каждой карточке есть свой видимый сырой ответ", (html.match(/class="raw-json-block"/g) || []).length === 2);
+  addCheck(checks, "В карточках показаны метаданные ответов", html.includes("Код: A | HTTP: 200 | Content-Type: application/json; charset=utf-8") && html.includes("Код: B | HTTP: 404 | Content-Type: application/json"));
+  addCheck(checks, "В карточках показан pretty JSON", containsRawJson(html) && (html.match(/Сырой JSON от 1С/g) || []).length === 2);
 
   return buildResult("M06", "Несколько кодов: часть успешна, часть с ошибкой", checks, {
     statusText: elements.status.textContent
   });
+}
+
+async function runFetchMetadataCase() {
+  const validRawText = '{\n  "value": 42\n}';
+  const invalidRawText = "<html>not json</html>";
+  const httpRawText = '{"message":"missing"}';
+  const responses = [
+    {
+      ok: true,
+      status: 201,
+      statusText: "Created",
+      contentType: "application/json; charset=utf-8",
+      rawText: validRawText
+    },
+    {
+      ok: true,
+      status: 200,
+      statusText: "OK",
+      contentType: "text/html",
+      rawText: invalidRawText
+    },
+    {
+      ok: false,
+      status: 404,
+      statusText: "Not Found",
+      contentType: "application/problem+json",
+      rawText: httpRawText
+    }
+  ];
+  let responseIndex = 0;
+  const { context } = createContext(async () => {
+    const response = responses[responseIndex];
+    responseIndex += 1;
+
+    return {
+      ok: response.ok,
+      status: response.status,
+      statusText: response.statusText,
+      headers: {
+        get(name) {
+          return name.toLowerCase() === "content-type" ? response.contentType : null;
+        }
+      },
+      async text() {
+        return response.rawText;
+      }
+    };
+  });
+  const checks = [];
+  const validResult = await context.fetchPriceHistoryForCode("VALID", "user", "password");
+  const invalidResult = await context.fetchPriceHistoryForCode("INVALID", "user", "password");
+  const httpResult = await context.fetchPriceHistoryForCode("MISSING", "user", "password");
+
+  addCheck(checks, "Успешный JSON сохраняет сырой текст без изменений", validResult.ok && validResult.rawText === validRawText);
+  addCheck(checks, "Успешный JSON сохраняет status и Content-Type", validResult.status === 201 && validResult.contentType === "application/json; charset=utf-8");
+  addCheck(checks, "Успешный JSON остаётся доступен как data", validResult.data && validResult.data.value === 42);
+  addCheck(checks, "Невалидный JSON сохраняет исходный responseText", !invalidResult.ok && invalidResult.rawText === invalidRawText && invalidResult.contentType === "text/html");
+  addCheck(checks, "HTTP-ошибка сохраняет rawText и метаданные", !httpResult.ok && httpResult.status === 404 && httpResult.contentType === "application/problem+json" && httpResult.rawText === httpRawText);
+  addCheck(checks, "JSON тела HTTP-ошибки также разобран", httpResult.data && httpResult.data.message === "missing");
+
+  return buildResult("M08", "Результат запроса сохраняет rawText, status и Content-Type", checks);
 }
 
 async function runConcurrencyCase() {
@@ -207,7 +276,8 @@ async function main() {
     assertParseCase("M04", "Дубликаты удаляются с сохранением первых вхождений", "A, B, A, C, B", ["A", "B", "C"]),
     await runTooManyCodesCase(),
     runMixedRenderCase(),
-    await runConcurrencyCase()
+    await runConcurrencyCase(),
+    await runFetchMetadataCase()
   ];
 
   const failed = results.filter((result) => result.status === "fail");

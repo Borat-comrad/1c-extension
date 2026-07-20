@@ -2,6 +2,7 @@ const BASE_URL =
   "http://192.168.11.240:8282/crm/hs/service_avtm_vne1c/information_code_producer";
 const MAX_CODES_PER_SEARCH = 20;
 const MAX_PARALLEL_REQUESTS = 2;
+const SHOW_RAW_1C_RESPONSE = true;
 
 const codeInput = document.getElementById("code");
 const loginInput = document.getElementById("login");
@@ -208,9 +209,10 @@ async function fetchPriceHistoryForCode(code, login, password) {
     });
 
     const responseText = await response.text();
+    const contentType = response.headers.get("content-type") || "";
 
     if (!response.ok) {
-      return buildHttpErrorResult(code, response.status, response.statusText, responseText);
+      return buildHttpErrorResult(code, response.status, response.statusText, contentType, responseText);
     }
 
     try {
@@ -218,6 +220,8 @@ async function fetchPriceHistoryForCode(code, login, password) {
         code,
         ok: true,
         status: response.status,
+        contentType,
+        rawText: responseText,
         data: JSON.parse(responseText)
       };
     } catch {
@@ -225,8 +229,9 @@ async function fetchPriceHistoryForCode(code, login, password) {
         code,
         ok: false,
         status: response.status,
+        contentType,
         error: "Ответ получен, но JSON не удалось разобрать.",
-        rawText: responseText || "Тело ответа пустое.",
+        rawText: responseText,
         errorType: "invalid_json"
       };
     }
@@ -241,13 +246,14 @@ async function fetchPriceHistoryForCode(code, login, password) {
   }
 }
 
-function buildHttpErrorResult(code, status, statusText, responseText) {
+function buildHttpErrorResult(code, status, statusText, contentType, responseText) {
   const result = {
     code,
     ok: false,
     status,
+    contentType,
     error: makeHttpErrorMessage(status, statusText),
-    rawText: responseText || "Тело ответа пустое.",
+    rawText: responseText,
     errorType: "http"
   };
 
@@ -284,18 +290,22 @@ function extractErrorMessage(data) {
 function renderSingleFetchResult(result) {
   if (result.ok) {
     showOk(`Запрос успешен. HTTP-статус: ${result.status}`);
-    renderResult(result.data, result.code);
+    renderResult(result.data, result.code, result);
     return;
   }
 
   showError(result.error || "Запрос завершился ошибкой.");
 
   if (result.errorType === "http" && result.data) {
-    renderBackendErrorResponse(result.status, "", result.data, result.rawText);
+    renderBackendErrorResponse(result.status, "", result.data, result.rawText, result);
     return;
   }
 
-  renderTechnicalFallback(result.error || "Запрос завершился ошибкой.", result.rawText || "Технический ответ пустой.");
+  renderTechnicalFallback(
+    result.error || "Запрос завершился ошибкой.",
+    result.rawText || "Технический ответ пустой.",
+    result
+  );
 }
 
 function handleSuccessfulResponse(responseText, code) {
@@ -322,10 +332,10 @@ function handleHttpErrorResponse(status, statusText, responseText) {
   }
 }
 
-function renderResult(data, code) {
+function renderResult(data, code, diagnosticResult) {
   const resultView = buildResultView(data, code);
   resultBlock.className = resultView.className;
-  resultBlock.innerHTML = resultView.html;
+  resultBlock.innerHTML = `${resultView.html}${diagnosticResult ? renderRawResponseBlock(diagnosticResult) : ""}`;
 }
 
 function buildResultView(data, code) {
@@ -452,6 +462,49 @@ function escapeHtml(value) {
     .replaceAll("'", "&#039;");
 }
 
+function renderRawResponseBlock(result) {
+  if (!SHOW_RAW_1C_RESPONSE) {
+    return "";
+  }
+
+  const status = result.status === undefined || result.status === null || result.status === ""
+    ? "недоступен"
+    : result.status;
+  const contentType = result.contentType || "";
+  const rawText = result.rawText === undefined || result.rawText === null ? "" : result.rawText;
+  const metaParts = [
+    `Код: ${result.code || ""}`,
+    `HTTP: ${status}`
+  ];
+
+  if (contentType) {
+    metaParts.push(`Content-Type: ${contentType}`);
+  }
+
+  let prettyJson = "";
+
+  if (Object.prototype.hasOwnProperty.call(result, "data")) {
+    try {
+      prettyJson = JSON.stringify(result.data, null, 2);
+    } catch {
+      // Parsed server responses are serializable; keep the raw text if an unexpected value is not.
+    }
+  }
+
+  return `
+    <div class="raw-json-block">
+      <div class="raw-json-title">Сырой ответ 1С</div>
+      <div class="raw-json-meta">${metaParts.map((part) => escapeHtml(part)).join(" | ")}</div>
+      <div class="raw-json-subtitle">Сырой текст ответа</div>
+      <pre class="raw-json-pre">${escapeHtml(rawText)}</pre>
+      ${prettyJson ? `
+        <div class="raw-json-subtitle">Сырой JSON от 1С</div>
+        <pre class="raw-json-pre">${escapeHtml(prettyJson)}</pre>
+      ` : ""}
+    </div>
+  `;
+}
+
 function calculateAveragePrice(prices) {
   if (!Array.isArray(prices)) {
     return null;
@@ -479,9 +532,9 @@ function calculateAveragePrice(prices) {
   };
 }
 
-function renderBackendErrorResponse(status, statusText, data, rawText) {
+function renderBackendErrorResponse(status, statusText, data, rawText, diagnosticResult) {
   resultBlock.className = "result-card";
-  resultBlock.innerHTML = renderBackendErrorSection(status, statusText, data, rawText);
+  resultBlock.innerHTML = `${renderBackendErrorSection(status, statusText, data, rawText)}${diagnosticResult ? renderRawResponseBlock(diagnosticResult) : ""}`;
 }
 
 function renderBackendErrorSection(status, statusText, data, rawText) {
@@ -638,9 +691,9 @@ function renderPriceValue(value) {
   return escapeHtml(value);
 }
 
-function renderTechnicalFallback(message, rawText) {
+function renderTechnicalFallback(message, rawText, diagnosticResult) {
   resultBlock.className = "result-card";
-  resultBlock.innerHTML = renderTechnicalFallbackSection(message, rawText);
+  resultBlock.innerHTML = `${renderTechnicalFallbackSection(message, rawText)}${diagnosticResult ? renderRawResponseBlock(diagnosticResult) : ""}`;
 }
 
 function renderTechnicalFallbackSection(message, rawText) {
@@ -714,6 +767,7 @@ function renderMultiSuccessCard(result) {
       <div class="${escapeHtml(resultView.className)} nested-result">
         ${resultView.html}
       </div>
+      ${renderRawResponseBlock(result)}
     </article>
   `;
 }
@@ -736,6 +790,7 @@ function renderMultiErrorCard(result) {
           <pre class="technical-response">${escapeHtml(rawText)}</pre>
         </details>
       </section>
+      ${renderRawResponseBlock(result)}
     </article>
   `;
 }

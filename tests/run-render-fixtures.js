@@ -77,31 +77,44 @@ function countOccurrences(text, pattern) {
 
 function containsRawJson(html) {
   const mainHtml = stripDetails(html);
-  return /"ИсторияЦен"\s*:/.test(mainHtml)
-    || /"ИсторияПоставок"\s*:/.test(mainHtml)
-    || /{\s*"[^"]+"\s*:/.test(mainHtml);
+  return /&quot;ИсторияЦен&quot;\s*:/.test(mainHtml)
+    || /&quot;ИсторияПоставок&quot;\s*:/.test(mainHtml)
+    || /{\s*&quot;[^&]+&quot;\s*:/.test(mainHtml);
 }
 
 function runCase(testCase) {
   const { context, resultBlock, statusBlock } = createContext();
+  const code = testCase.inputCode || "";
 
   if (testCase.rawResponseText !== undefined) {
-    vm.runInContext(
-      `handleSuccessfulResponse(${JSON.stringify(testCase.rawResponseText)}, ${JSON.stringify(testCase.inputCode || "")});`,
-      context
-    );
+    context.renderSingleFetchResult({
+      code,
+      ok: false,
+      status: 200,
+      contentType: "text/html; charset=utf-8",
+      rawText: testCase.rawResponseText,
+      error: "Ответ получен, но JSON не удалось разобрать.",
+      errorType: "invalid_json"
+    });
   } else if (testCase.httpStatus && testCase.httpStatus >= 400) {
-    vm.runInContext(
-      `showError(makeHttpErrorMessage(${JSON.stringify(testCase.httpStatus)}, "Internal Server Error"));
-       handleHttpErrorResponse(${JSON.stringify(testCase.httpStatus)}, "Internal Server Error", ${JSON.stringify(JSON.stringify(testCase.response))});`,
-      context
+    context.renderSingleFetchResult(
+      context.buildHttpErrorResult(
+        code,
+        testCase.httpStatus,
+        "Internal Server Error",
+        "application/json; charset=utf-8",
+        JSON.stringify(testCase.response)
+      )
     );
   } else {
-    vm.runInContext(
-      `showOk("Запрос успешен. HTTP-статус: 200");
-       handleSuccessfulResponse(${JSON.stringify(JSON.stringify(testCase.response))}, ${JSON.stringify(testCase.inputCode || "")});`,
-      context
-    );
+    context.renderSingleFetchResult({
+      code,
+      ok: true,
+      status: 200,
+      contentType: "application/json; charset=utf-8",
+      rawText: JSON.stringify(testCase.response),
+      data: testCase.response
+    });
   }
 
   return evaluateCase(testCase, resultBlock, statusBlock);
@@ -112,19 +125,23 @@ function evaluateCase(testCase, resultBlock, statusBlock) {
   const mainHtml = stripDetails(html);
   const checks = [];
 
-  addCheck(checks, "Основной UI не содержит сырой JSON", !containsRawJson(html));
+  addCheck(checks, "Диагностический блок виден сразу", mainHtml.includes("raw-json-block") && mainHtml.includes("Сырой ответ 1С"));
+  addCheck(checks, "В диагностическом блоке показаны код и HTTP status", mainHtml.includes(`Код: ${testCase.inputCode || ""}`) && mainHtml.includes(`HTTP: ${testCase.httpStatus || 200}`));
+  addCheck(checks, "Content-Type показан", mainHtml.includes("Content-Type:"));
 
   if (testCase.rawResponseText !== undefined) {
     addCheck(checks, "Показана понятная ошибка парсинга JSON", html.includes("JSON не удалось разобрать"));
     addCheck(checks, "HTML из сырого ответа экранирован", html.includes("&lt;html&gt;") && !mainHtml.includes("<html>"));
-    addCheck(checks, "Технический ответ спрятан в details", html.includes("<details") && html.includes("Технический ответ"));
+    addCheck(checks, "Исходный невалидный ответ виден вне details", mainHtml.includes("&lt;html&gt;"));
     return buildResult(testCase, checks, html, statusBlock);
   }
 
+  addCheck(checks, "Сырой и pretty JSON показаны в диагностическом блоке", containsRawJson(html) && mainHtml.includes("Сырой текст ответа") && mainHtml.includes("Сырой JSON от 1С"));
+
   if (testCase.httpStatus && testCase.httpStatus >= 400) {
-    addCheck(checks, "Статус backend показан понятно", statusBlock.textContent.includes(`Ошибка ${testCase.httpStatus}`));
+    addCheck(checks, "HTTP status backend показан понятно", mainHtml.includes(`HTTP: ${testCase.httpStatus}`));
     addCheck(checks, "JSON-обертка ошибки разобрана в поля", html.includes("source_status") && html.includes("1С вернула внутреннюю ошибку"));
-    addCheck(checks, "Сырой ответ доступен только в technical details", html.includes("<details") && html.includes("Технический ответ"));
+    addCheck(checks, "Сырой ответ ошибки виден вне technical details", mainHtml.includes("source_status"));
     return buildResult(testCase, checks, html, statusBlock);
   }
 
@@ -132,7 +149,7 @@ function evaluateCase(testCase, resultBlock, statusBlock) {
 
   if (expected.fallback) {
     addCheck(checks, "Неожиданный формат уходит в fallback", html.includes("формат отличается от ожидаемого"));
-    addCheck(checks, "Технический ответ спрятан в details", html.includes("<details") && html.includes("Технический ответ"));
+    addCheck(checks, "Диагностический блок остаётся видимым после fallback", mainHtml.includes("Сырой JSON от 1С"));
     return buildResult(testCase, checks, html, statusBlock);
   }
 
@@ -208,6 +225,7 @@ function collectRenderedSignals(html) {
     hasAveragePriceCard: html.includes("metric-card accent"),
     hasPriceList: html.includes("price-list"),
     hasDetails: html.includes("<details"),
+    hasRawResponseBlock: html.includes("raw-json-block"),
     priceItems: countOccurrences(html, "price-item"),
     recordItems: countOccurrences(html, "record-item")
   };
