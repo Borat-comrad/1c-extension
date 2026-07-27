@@ -175,6 +175,7 @@ function runMixedRenderCase() {
   addCheck(checks, "В каждой карточке есть свой видимый сырой ответ", (html.match(/class="raw-json-block"/g) || []).length === 2);
   addCheck(checks, "В карточках показаны метаданные ответов", html.includes("Код: A | HTTP: 200 | Content-Type: application/json; charset=utf-8") && html.includes("Код: B | HTTP: 404 | Content-Type: application/json"));
   addCheck(checks, "В карточках показан pretty JSON", containsRawJson(html) && (html.match(/Сырой JSON от 1С/g) || []).length === 2);
+  addCheck(checks, "Обновлённый summary работает внутри multi-code карточки", html.includes("product-summary-card") && html.includes("Группа / производитель") && html.includes("Код конечного производителя"));
 
   return buildResult("M06", "Несколько кодов: часть успешна, часть с ошибкой", checks, {
     statusText: elements.status.textContent

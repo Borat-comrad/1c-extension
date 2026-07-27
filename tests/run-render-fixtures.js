@@ -154,6 +154,9 @@ function evaluateCase(testCase, resultBlock, statusBlock) {
   }
 
   addCheck(checks, "Показан код производителя", html.includes(testCase.inputCode));
+  addCheck(checks, "Summary содержит код конечного производителя", html.includes("Код конечного производителя"));
+  addCheck(checks, "Поле Группа подписано как производитель", html.includes("Группа / производитель"));
+  addCheck(checks, "Summary содержит расширенное наименование", html.includes("Расширенное наименование"));
 
   if (expected.lastPrice) {
     addCheck(checks, `Показана последняя цена: ${expected.lastPrice}`, html.includes(expected.lastPrice));
@@ -181,7 +184,29 @@ function evaluateCase(testCase, resultBlock, statusBlock) {
   }
 
   if (expected.sapCodesCount) {
-    addCheck(checks, `SAP-коды отображены: ${expected.sapCodesCount}`, html.includes("Список SAP-кодов") && html.includes(`Записей: ${expected.sapCodesCount}`));
+    addCheck(checks, `SAP-коды отображены: ${expected.sapCodesCount}`, html.includes("SAP-коды") && html.includes(`Записей: ${expected.sapCodesCount}`));
+  }
+
+  if (expected.summaryFields) {
+    addCheck(checks, "Фактические поля заметно выделены в summary", html.includes("product-summary-card") && countOccurrences(html, "product-field") >= 7);
+    addCheck(checks, "Код конечного производителя показан в summary", html.includes("0529900267"));
+    addCheck(checks, "Производитель оборудования показан в summary", html.includes("Krones"));
+  }
+
+  if (expected.multilineName) {
+    addCheck(checks, "Многострочное наименование сохраняет переносы безопасным CSS-классом", html.includes("multiline-value") && html.includes("HTD 1600-8M-50\n0529900267\n\nL=1600 Z=200 NEOPREN"));
+  }
+
+  if (expected.sapStringEntries) {
+    addCheck(checks, "SAP-строки разобраны на клиента и SAP-код", html.includes("Клиент") && html.includes("SAP-код") && html.includes("Балтика группа пивоваренных компаний") && html.includes("d1.821.601.068") && html.includes("АБ Инбев Эфес") && html.includes("51299469"));
+  }
+
+  if (expected.sapFallbackValue) {
+    addCheck(checks, "SAP-строка без запятой показана без падения", html.includes(expected.sapFallbackValue));
+  }
+
+  if (expected.noCompetitorUi) {
+    addCheck(checks, "Контрагенты не получают специальную разметку конкурентов", !html.includes("competitor-price") && !html.includes(">Конкурент<"));
   }
 
   if (expected.additionalFields) {
@@ -220,7 +245,7 @@ function buildResult(testCase, checks, html, statusBlock) {
 
 function collectRenderedSignals(html) {
   return {
-    hasSummary: html.includes("summary-grid"),
+    hasSummary: html.includes("product-summary-card"),
     hasLastPriceCard: html.includes("metric-card primary"),
     hasAveragePriceCard: html.includes("metric-card accent"),
     hasPriceList: html.includes("price-list"),

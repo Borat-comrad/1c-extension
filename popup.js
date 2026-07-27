@@ -18,7 +18,10 @@ const EXPECTED_RESPONSE_KEYS = [
   "ДанынеРекламаций",
   "ДанныеРекламаций",
   "СписокСапКодов",
+  "КодЗапроса",
   "КодКонечногоПроизводителя",
+  "ПроизводительОборудования",
+  "Бренд",
   "РасширенноеНаименование",
   "Группа"
 ];
@@ -352,85 +355,230 @@ function buildResultView(data, code) {
   return {
     className: "result-card",
     html: `
-    <section class="summary-grid" aria-label="Краткая информация">
-      ${renderSummaryField("Код производителя", code)}
-      ${renderSummaryField("Расширенное наименование", data["РасширенноеНаименование"])}
-      ${renderSummaryField("Группа", data["Группа"])}
-      ${renderSummaryField("Код конечного производителя", data["КодКонечногоПроизводителя"])}
-    </section>
-    ${renderPricesSection(data["ИсторияЦен"])}
+    ${renderProductSummary(data, code)}
+    ${renderLatestEfesQuoteSection(data)}
+    ${renderPurchasePricesSection(data)}
+    ${renderQuoteHistorySection(data)}
+    ${renderSapCodesSection(data)}
     ${renderShipmentsSection(data)}
     ${renderClaimsSection(data)}
-    ${renderSapCodesSection(data)}
-    ${renderInfoSection(data)}
     ${renderAdditionalInfoSection(data)}
   `
   };
 }
 
-function renderPricesSection(prices) {
-  if (!Array.isArray(prices) || prices.length === 0) {
-    return `
-      <section class="section-card">
-        <h3>История цен</h3>
-        <div class="metrics-grid">
-          <div class="metric-card primary">
-            <div class="metric-label">Последняя цена</div>
-            <div class="metric-value">${renderEmptyValue(null)}</div>
-          </div>
-          <div class="metric-card accent">
-            <div class="metric-label">Средняя цена</div>
-            <div class="metric-value">${renderEmptyValue(null)}</div>
-          </div>
-        </div>
-        <div class="price-list">
-          <h4>Все цены</h4>
-          <div class="empty-value">${EMPTY_TEXT}</div>
-        </div>
-      </section>
-    `;
-  }
-
-  const lastPrice = getLastPrice(prices);
-  const averagePrice = calculateAveragePrice(prices);
-  const lastPriceValue = lastPrice && !isEmptyValue(lastPrice["Цена"])
-    ? `${renderPriceValue(lastPrice["Цена"])} ${renderCurrency(lastPrice["Валюта"])}`
-    : renderEmptyValue(null);
-  const averagePriceValue = averagePrice
-    ? `${escapeHtml(averagePrice.value)} ${renderCurrency(averagePrice.currency)}`
-    : renderEmptyValue(null);
+function renderProductSummary(data, code) {
+  const titleValue = !isEmptyValue(data["РасширенноеНаименование"])
+    ? data["РасширенноеНаименование"]
+    : (!isEmptyValue(data["Бренд"]) ? data["Бренд"] : code);
 
   return `
-    <section class="section-card">
-      <h3>История цен</h3>
-      <div class="metrics-grid">
-        <div class="metric-card primary">
-          <div class="metric-label">Последняя цена</div>
-          <div class="metric-value">${lastPriceValue}</div>
-          <div class="metric-note">${renderEmptyValue(lastPrice && lastPrice["Контрагент"])}</div>
-        </div>
-        <div class="metric-card accent">
-          <div class="metric-label">Средняя цена</div>
-          <div class="metric-value">${averagePriceValue}</div>
-        </div>
-      </div>
-      <div class="price-list">
-        <h4>Все цены</h4>
-        ${prices.map((price, index) => renderPriceItem(price, index)).join("")}
+    <section class="product-summary-card" aria-label="Карточка детали">
+      <h3 class="product-title">${renderEmptyValue(titleValue)}</h3>
+      <div class="product-summary-grid summary-grid">
+        ${renderProductField("Код запроса", data["КодЗапроса"])}
+        ${renderProductField("Код, введённый пользователем", code)}
+        ${renderProductField("Код конечного производителя", data["КодКонечногоПроизводителя"])}
+        ${renderProductField("Бренд", data["Бренд"])}
+        ${renderProductField("Производитель оборудования", data["ПроизводительОборудования"])}
+        ${renderProductField("Группа / производитель", data["Группа"])}
+        ${renderProductField("Расширенное наименование", data["РасширенноеНаименование"], {
+          fullWidth: true,
+          multiline: true
+        })}
       </div>
     </section>
   `;
 }
 
-function renderInfoSection(data) {
+function renderProductField(label, value, options = {}) {
+  const itemClasses = ["product-field", "summary-item"];
+  const valueClasses = ["product-field-value", "field-value"];
+
+  if (options.fullWidth) {
+    itemClasses.push("product-field-wide", "summary-item-wide");
+  }
+
+  if (options.multiline) {
+    valueClasses.push("multiline-value");
+  }
+
   return `
-    <section class="section-card">
-      <h3>Основная информация</h3>
-      ${renderFieldRow("РасширенноеНаименование", data["РасширенноеНаименование"])}
-      ${renderFieldRow("Группа", data["Группа"])}
-      ${renderFieldRow("КодКонечногоПроизводителя", data["КодКонечногоПроизводителя"])}
+    <div class="${itemClasses.join(" ")}">
+      <div class="product-field-label field-label">${escapeHtml(label)}</div>
+      <div class="${valueClasses.join(" ")}">${renderEmptyValue(value)}</div>
+    </div>
+  `;
+}
+
+function renderPurchasePricesSection(data) {
+  const purchaseEntries = getPurchaseEntries(data["ИсторияЦен"]);
+  const latestEntry = findLatestPurchaseEntry(purchaseEntries);
+  const average = calculateAveragePurchasePrice(purchaseEntries);
+
+  return `
+    <section class="section-card purchase-price-section">
+      <h3>Закупочные цены</h3>
+      <div class="purchase-metric-row metrics-grid">
+        <div class="purchase-metric-card metric-card primary">
+          <div class="metric-label">Последняя закупочная цена</div>
+          <div class="metric-value">${latestEntry
+            ? escapeHtml(formatMoney(getPurchasePrice(latestEntry), getPurchaseCurrency(latestEntry)))
+            : renderEmptyValue(null)}</div>
+          <div class="metric-note">${latestEntry ? renderEmptyValue(latestEntry["Контрагент"]) : renderEmptyValue(null)}</div>
+          ${latestEntry && !isEmptyValue(latestEntry["ДатаКП"])
+            ? `<div class="metric-note">Дата КП: ${renderEmptyValue(latestEntry["ДатаКП"])}</div>`
+            : ""}
+          ${latestEntry && !isEmptyValue(latestEntry["НомерКП"])
+            ? `<div class="metric-note">КП: ${renderEmptyValue(latestEntry["НомерКП"])}</div>`
+            : ""}
+        </div>
+        <div class="purchase-metric-card metric-card accent">
+          <div class="metric-label">Средняя закупочная цена</div>
+          <div class="metric-value">${average
+            ? escapeHtml(`${average.value} ${average.currency || EMPTY_TEXT}`)
+            : renderEmptyValue(null)}</div>
+          <div class="metric-note">Учитываются все числовые закупочные цены</div>
+        </div>
+      </div>
+      <div class="purchase-list price-list">
+        <h4>Список закупочных цен</h4>
+        ${purchaseEntries.length > 0
+          ? purchaseEntries.map((entry, index) => renderPurchasePriceCard(entry, index)).join("")
+          : `<div class="empty-value">${EMPTY_TEXT}</div>`}
+      </div>
     </section>
   `;
+}
+
+function renderPurchasePriceCard(entry, index) {
+  const competitor = isCompetitorEntry(entry);
+  const classes = ["purchase-price-card", "price-item"];
+
+  if (competitor) {
+    classes.push("competitor-price");
+  }
+
+  return `
+    <article class="${classes.join(" ")}">
+      <div class="price-title purchase-price-card-header">
+        <span>${index + 1}. ${renderEmptyValue(entry["Контрагент"])}</span>
+        ${competitor ? renderCompetitorBadge() : ""}
+      </div>
+      ${!isEmptyValue(entry["ТипКонтрагента"]) ? renderFieldRow("Тип контрагента", entry["ТипКонтрагента"]) : ""}
+      ${renderFieldRow("Цена закупки", formatMoney(getPurchasePrice(entry), getPurchaseCurrency(entry)))}
+      ${!isEmptyValue(entry["ДатаКП"]) ? renderFieldRow("Дата КП", entry["ДатаКП"]) : ""}
+      ${!isEmptyValue(entry["НомерКП"]) ? renderFieldRow("Номер КП", entry["НомерКП"]) : ""}
+      ${!isEmptyValue(entry["Клиент"]) ? renderFieldRow("Клиент", entry["Клиент"]) : ""}
+      ${!isEmptyValue(entry["СтатусКП"]) ? renderFieldRow("Статус КП", entry["СтатусКП"]) : ""}
+    </article>
+  `;
+}
+
+function renderQuoteHistorySection(data) {
+  const quoteEntries = getQuoteEntries(data["ИсторияЦен"]);
+
+  return `
+    <section class="section-card quote-history-section">
+      <h3>История КП / предложений</h3>
+      <div class="quote-list">
+        ${quoteEntries.length > 0
+          ? quoteEntries.map((entry, index) => renderQuoteCard(entry, index)).join("")
+          : `<div class="empty-value">${EMPTY_TEXT}</div>`}
+      </div>
+    </section>
+  `;
+}
+
+function renderQuoteCard(entry, index, options = {}) {
+  const competitor = isCompetitorEntry(entry);
+  const classes = ["quote-card"];
+
+  if (competitor) {
+    classes.push("competitor-price");
+  }
+
+  if (options.compact) {
+    classes.push("quote-card-compact");
+  }
+
+  return `
+    <article class="${classes.join(" ")}">
+      <div class="quote-card-header">
+        <div>
+          <div class="quote-card-kicker">КП ${index + 1}</div>
+          <div class="quote-card-title">${renderEmptyValue(entry["НомерКП"])}</div>
+        </div>
+        ${competitor ? renderCompetitorBadge() : ""}
+      </div>
+      <div class="quote-meta">
+        ${renderFieldRow("Дата КП", entry["ДатаКП"])}
+        ${renderFieldRow("Клиент", entry["Клиент"])}
+        ${renderFieldRow("Контрагент / поставщик", entry["Контрагент"])}
+        ${renderFieldRow("Закупка", formatMoney(getPurchasePrice(entry), getPurchaseCurrency(entry)))}
+        ${renderFieldRow("Цена КП", formatMoney(getQuotePrice(entry), getQuoteCurrency(entry)))}
+        ${renderFieldRow("Статус КП", entry["СтатусКП"], { valueClass: "quote-status" })}
+        ${!isEmptyValue(entry["ТипКонтрагента"]) ? renderFieldRow("Тип контрагента", entry["ТипКонтрагента"]) : ""}
+      </div>
+    </article>
+  `;
+}
+
+function renderLatestEfesQuoteSection(data) {
+  const result = findLatestEfesQuote(data["ИсторияЦен"]);
+
+  if (result.latestInPeriod) {
+    return `
+      <section class="section-card latest-efes-quote-section">
+        <h3>Последнее КП по Эфес</h3>
+        <div class="efes-last-quote-card${isCompetitorEntry(result.latestInPeriod) ? " competitor-price" : ""}">
+          ${renderLatestEfesQuoteDetails(result.latestInPeriod)}
+        </div>
+      </section>
+    `;
+  }
+
+  return `
+    <section class="section-card latest-efes-quote-section">
+      <h3>Последнее КП по Эфес</h3>
+        <div class="efes-last-quote-empty">За последние 12 месяцев КП по Эфес не найдено</div>
+      ${result.latestOverall ? `
+        <div class="efes-last-quote-outside-note">Последнее найденное КП по Эфес вне периода 12 месяцев</div>
+        <div class="efes-last-quote-card outside-period${isCompetitorEntry(result.latestOverall) ? " competitor-price" : ""}">
+          ${renderLatestEfesQuoteDetails(result.latestOverall)}
+        </div>
+      ` : ""}
+    </section>
+  `;
+}
+
+function renderLatestEfesQuoteDetails(entry) {
+  return `
+    <div class="quote-card-header">
+      <div class="quote-card-title">КП ${renderEmptyValue(entry["НомерКП"])}</div>
+      ${isCompetitorEntry(entry) ? renderCompetitorBadge() : ""}
+    </div>
+    ${renderFieldRow("Дата КП", entry["ДатаКП"])}
+    ${renderFieldRow("Клиент", entry["Клиент"])}
+    ${renderFieldRow("Цена КП", formatMoney(getQuotePrice(entry), getQuoteCurrency(entry)))}
+    ${renderFieldRow("Статус КП", entry["СтатусКП"], { valueClass: "quote-status" })}
+    ${renderFieldRow("Контрагент", entry["Контрагент"])}
+    ${isNumberValue(getPurchasePrice(entry))
+      ? renderFieldRow("Цена закупки", formatMoney(getPurchasePrice(entry), getPurchaseCurrency(entry)))
+      : ""}
+  `;
+}
+
+function renderCompetitorBadge() {
+  return `<span class="competitor-badge">Конкурент</span>`;
+}
+
+function renderPricesSection(prices) {
+  return renderPurchasePricesSection({ "ИсторияЦен": prices });
+}
+
+function renderInfoSection(data) {
+  return renderProductSummary(data, "");
 }
 
 function renderShipmentsSection(data) {
@@ -442,7 +590,81 @@ function renderClaimsSection(data) {
 }
 
 function renderSapCodesSection(data) {
-  return renderDataSection("Список SAP-кодов", data["СписокСапКодов"]);
+  const sapCodes = data["СписокСапКодов"];
+
+  if (!Array.isArray(sapCodes) || sapCodes.length === 0) {
+    return `
+      <section class="section-card sap-codes-section">
+        <h3>SAP-коды</h3>
+        <div class="empty-value">${EMPTY_TEXT}</div>
+      </section>
+    `;
+  }
+
+  return `
+    <section class="section-card sap-codes-section">
+      <h3>SAP-коды</h3>
+      <div class="records-count">Записей: ${sapCodes.length}</div>
+      <div class="records-list sap-codes-list">
+        ${sapCodes.map((item, index) => renderSapCodeItem(item, index)).join("")}
+      </div>
+    </section>
+  `;
+}
+
+function renderSapCodeItem(item, index) {
+  if (item && typeof item === "object" && !Array.isArray(item)) {
+    const hasStructuredSapFields = Object.prototype.hasOwnProperty.call(item, "Клиент")
+      || Object.prototype.hasOwnProperty.call(item, "SAPКод");
+
+    if (!hasStructuredSapFields) {
+      return `
+        <article class="sap-code-card record-item sap-code-item">
+          <div class="record-title">${index + 1}.</div>
+          ${Object.entries(item).map(([key, value]) => renderFieldRow(key, value)).join("")}
+        </article>
+      `;
+    }
+
+    return `
+      <article class="sap-code-card record-item sap-code-item">
+        <div class="record-title">${index + 1}.</div>
+        ${renderFieldRow("Клиент", item["Клиент"])}
+        ${renderFieldRow("SAP-код", item["SAPКод"])}
+      </article>
+    `;
+  }
+
+  if (typeof item !== "string") {
+    return `
+      <article class="sap-code-card record-item sap-code-item">
+        <div class="record-title">${index + 1}.</div>
+        <div class="field-value">${renderEmptyValue(item)}</div>
+      </article>
+    `;
+  }
+
+  const lastCommaIndex = item.lastIndexOf(",");
+
+  if (lastCommaIndex === -1) {
+    return `
+      <article class="sap-code-card record-item sap-code-item">
+        <div class="record-title">${index + 1}.</div>
+        <div class="field-value">${renderEmptyValue(item)}</div>
+      </article>
+    `;
+  }
+
+  const client = item.slice(0, lastCommaIndex).trim();
+  const sapCode = item.slice(lastCommaIndex + 1).trim();
+
+  return `
+    <article class="sap-code-card record-item sap-code-item">
+      <div class="record-title">${index + 1}.</div>
+      ${renderFieldRow("Клиент", client)}
+      ${renderFieldRow("SAP-код", sapCode)}
+    </article>
+  `;
 }
 
 function renderEmptyValue(value) {
@@ -462,7 +684,7 @@ function escapeHtml(value) {
     .replaceAll("'", "&#039;");
 }
 
-function renderRawResponseBlock(result) {
+function renderRawJsonBlock(result) {
   if (!SHOW_RAW_1C_RESPONSE) {
     return "";
   }
@@ -505,31 +727,8 @@ function renderRawResponseBlock(result) {
   `;
 }
 
-function calculateAveragePrice(prices) {
-  if (!Array.isArray(prices)) {
-    return null;
-  }
-
-  const numericPrices = prices
-    .map((price) => ({
-      value: normalizeNumber(price && price["Цена"]),
-      currency: normalizeCurrency(price && price["Валюта"])
-    }))
-    .filter((price) => price.value !== null);
-
-  if (numericPrices.length === 0) {
-    return null;
-  }
-
-  const sum = numericPrices.reduce((total, price) => total + price.value, 0);
-  const currencies = [...new Set(numericPrices.map((price) => price.currency).filter(Boolean))];
-  const average = sum / numericPrices.length;
-  const roundedAverage = Math.round((average + 1e-9) * 100) / 100;
-
-  return {
-    value: roundedAverage.toFixed(2),
-    currency: currencies.length > 1 ? "разные валюты" : (currencies[0] || "")
-  };
+function renderRawResponseBlock(result) {
+  return renderRawJsonBlock(result);
 }
 
 function renderBackendErrorResponse(status, statusText, data, rawText, diagnosticResult) {
@@ -557,11 +756,26 @@ function getLastPrice(prices) {
   return Array.isArray(prices) && prices.length > 0 ? prices[prices.length - 1] : null;
 }
 
-function renderSummaryField(label, value) {
+function renderSummaryField(label, value, options = {}) {
+  const itemClasses = ["summary-item"];
+  const valueClasses = ["field-value"];
+
+  if (options.featured) {
+    itemClasses.push("summary-item-featured");
+  }
+
+  if (options.fullWidth) {
+    itemClasses.push("summary-item-wide");
+  }
+
+  if (options.multiline) {
+    valueClasses.push("multiline-value");
+  }
+
   return `
-    <div class="summary-item">
+    <div class="${itemClasses.join(" ")}">
       <div class="field-label">${escapeHtml(label)}</div>
-      <div class="field-value">${renderEmptyValue(value)}</div>
+      <div class="${valueClasses.join(" ")}">${renderEmptyValue(value)}</div>
     </div>
   `;
 }
@@ -666,15 +880,24 @@ function renderRecordItem(item, index) {
   `;
 }
 
-function renderFieldRow(label, value) {
+function renderFieldRow(label, value, options = {}) {
   const valueHtml = value && typeof value === "object"
     ? renderStructuredValue(value)
     : renderEmptyValue(value);
+  const valueClasses = ["field-value"];
+
+  if (options.multiline) {
+    valueClasses.push("multiline-value");
+  }
+
+  if (options.valueClass) {
+    valueClasses.push(options.valueClass);
+  }
 
   return `
     <div class="field-row">
       <div class="field-label">${escapeHtml(label)}</div>
-      <div class="field-value">${valueHtml}</div>
+      <div class="${valueClasses.join(" ")}">${valueHtml}</div>
     </div>
   `;
 }
@@ -820,12 +1043,226 @@ function isEmptyValue(value) {
   return false;
 }
 
-function normalizeNumber(value) {
-  if (typeof value === "number") {
-    return Number.isFinite(value) ? value : null;
+function formatEmpty(value) {
+  return isEmptyValue(value) ? EMPTY_TEXT : String(value);
+}
+
+function isNumberValue(value) {
+  return typeof value === "number" && Number.isFinite(value);
+}
+
+function formatMoney(value, currency) {
+  if (isEmptyValue(value)) {
+    return EMPTY_TEXT;
   }
 
-  return null;
+  const formattedValue = isNumberValue(value)
+    ? (Number.isInteger(value) ? String(value) : value.toFixed(2))
+    : String(value);
+  const formattedCurrency = isEmptyValue(currency) ? EMPTY_TEXT : String(currency).trim();
+
+  return `${formattedValue} ${formattedCurrency}`;
+}
+
+function normalizeText(value) {
+  return isEmptyValue(value) ? "" : String(value).trim().toLowerCase();
+}
+
+function isCompetitorEntry(entry) {
+  if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+    return false;
+  }
+
+  return entry["ЭтоКонкурент"] === true
+    || normalizeText(entry["ТипКонтрагента"]) === "конкурент";
+}
+
+function getPurchasePrice(entry) {
+  if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+    return null;
+  }
+
+  if (isNumberValue(entry["ЦенаЗакупки"])) {
+    return entry["ЦенаЗакупки"];
+  }
+
+  return isNumberValue(entry["Цена"]) ? entry["Цена"] : null;
+}
+
+function getPurchaseCurrency(entry) {
+  if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+    return "";
+  }
+
+  if (!isEmptyValue(entry["ВалютаЗакупки"])) {
+    return String(entry["ВалютаЗакупки"]).trim();
+  }
+
+  return isEmptyValue(entry["Валюта"]) ? "" : String(entry["Валюта"]).trim();
+}
+
+function getQuotePrice(entry) {
+  return entry && typeof entry === "object" && !Array.isArray(entry)
+    ? entry["ЦенаКП"]
+    : null;
+}
+
+function getQuoteCurrency(entry) {
+  if (!entry || typeof entry !== "object" || Array.isArray(entry) || isEmptyValue(entry["ВалютаКП"])) {
+    return "";
+  }
+
+  return String(entry["ВалютаКП"]).trim();
+}
+
+function hasQuotePrice(entry) {
+  const value = getQuotePrice(entry);
+  return isNumberValue(value) || (typeof value === "string" && value.trim() !== "");
+}
+
+function hasQuoteData(entry) {
+  if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+    return false;
+  }
+
+  return !isEmptyValue(entry["ДатаКП"])
+    || !isEmptyValue(entry["НомерКП"])
+    || hasQuotePrice(entry);
+}
+
+function getPurchaseEntries(history) {
+  if (!Array.isArray(history)) {
+    return [];
+  }
+
+  return history.filter((entry) => isNumberValue(getPurchasePrice(entry)));
+}
+
+function getQuoteEntries(history) {
+  if (!Array.isArray(history)) {
+    return [];
+  }
+
+  return history.filter((entry) => hasQuoteData(entry));
+}
+
+function findLatestPurchaseEntry(entries) {
+  if (!Array.isArray(entries) || entries.length === 0) {
+    return null;
+  }
+
+  let latestDatedEntry = null;
+  let latestTimestamp = Number.NEGATIVE_INFINITY;
+
+  entries.forEach((entry) => {
+    const parsedDate = parseDateSafe(entry && entry["ДатаКП"]);
+
+    if (parsedDate && parsedDate.getTime() >= latestTimestamp) {
+      latestDatedEntry = entry;
+      latestTimestamp = parsedDate.getTime();
+    }
+  });
+
+  return latestDatedEntry || entries[entries.length - 1];
+}
+
+function calculateAveragePurchasePrice(entries) {
+  const purchaseEntries = getPurchaseEntries(entries);
+
+  if (purchaseEntries.length === 0) {
+    return null;
+  }
+
+  const sum = purchaseEntries.reduce((total, entry) => total + getPurchasePrice(entry), 0);
+  const purchaseCurrencies = purchaseEntries.map((entry) => getPurchaseCurrency(entry));
+  const hasMissingCurrency = purchaseCurrencies.some((currency) => currency === "");
+  const currencies = [...new Set(purchaseCurrencies.filter((currency) => currency !== ""))];
+  const average = sum / purchaseEntries.length;
+  const roundedAverage = Math.round((average + 1e-9) * 100) / 100;
+
+  return {
+    value: roundedAverage.toFixed(2),
+    currency: hasMissingCurrency
+      ? ""
+      : (currencies.length > 1 ? "разные валюты" : (currencies[0] || "")),
+    count: purchaseEntries.length
+  };
+}
+
+function calculateAveragePrice(prices) {
+  return calculateAveragePurchasePrice(prices);
+}
+
+function parseDateSafe(value) {
+  if (Object.prototype.toString.call(value) === "[object Date]") {
+    return Number.isNaN(value.getTime()) ? null : new Date(value.getTime());
+  }
+
+  if (typeof value !== "string" || value.trim() === "") {
+    return null;
+  }
+
+  const normalizedValue = value.trim();
+  const isoDateMatch = normalizedValue.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+
+  if (isoDateMatch) {
+    const year = Number(isoDateMatch[1]);
+    const month = Number(isoDateMatch[2]);
+    const day = Number(isoDateMatch[3]);
+    const parsedIsoDate = new Date(Date.UTC(year, month - 1, day));
+
+    if (
+      parsedIsoDate.getUTCFullYear() !== year
+      || parsedIsoDate.getUTCMonth() !== month - 1
+      || parsedIsoDate.getUTCDate() !== day
+    ) {
+      return null;
+    }
+
+    return parsedIsoDate;
+  }
+
+  const parsedDate = new Date(normalizedValue);
+  return Number.isNaN(parsedDate.getTime()) ? null : parsedDate;
+}
+
+function isEfesClient(value) {
+  const client = normalizeText(value);
+  const efesMarkers = ["эфес", "инбев эфес", "аб инбев эфес", "ab inbev efes"];
+
+  return client !== "" && efesMarkers.some((marker) => client.includes(marker));
+}
+
+function findLatestEfesQuote(entries, now = new Date()) {
+  const currentDate = parseDateSafe(now) || new Date();
+  const periodStart = new Date(currentDate.getTime());
+  periodStart.setMonth(periodStart.getMonth() - 12);
+
+  const candidates = getQuoteEntries(entries)
+    .filter((entry) => isEfesClient(entry["Клиент"]) && hasQuotePrice(entry))
+    .map((entry) => ({
+      entry,
+      date: parseDateSafe(entry["ДатаКП"])
+    }))
+    .filter((candidate) => (
+      candidate.date !== null
+      && candidate.date.getTime() <= currentDate.getTime()
+    ))
+    .sort((left, right) => right.date.getTime() - left.date.getTime());
+  const withinPeriod = candidates.filter((candidate) => (
+    candidate.date.getTime() >= periodStart.getTime()
+  ));
+
+  return {
+    latestInPeriod: withinPeriod.length > 0 ? withinPeriod[0].entry : null,
+    latestOverall: candidates.length > 0 ? candidates[0].entry : null,
+    periodStart,
+    now: currentDate
+  };
+}
+
+function normalizeNumber(value) {
+  return isNumberValue(value) ? value : null;
 }
 
 function normalizeCurrency(value) {

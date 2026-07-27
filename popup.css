@@ -174,6 +174,47 @@ button:disabled {
   background: transparent;
 }
 
+.product-summary-card {
+  box-sizing: border-box;
+  padding: 14px;
+  border: 1px solid #9db9e8;
+  border-radius: 10px;
+  background: linear-gradient(145deg, #f2f7ff 0%, #ffffff 72%);
+  box-shadow: 0 3px 12px rgba(45, 108, 223, 0.1);
+}
+
+.product-title {
+  margin: 0 0 12px 0;
+  color: #173c76;
+  font-size: 15px;
+  line-height: 1.35;
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+}
+
+.product-summary-grid {
+  margin-bottom: 0;
+}
+
+.product-field {
+  padding: 10px;
+  border: 1px solid #d6e2f3;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.86);
+}
+
+.product-field-wide {
+  grid-column: 1 / -1;
+}
+
+.product-field-label {
+  color: #55708f;
+}
+
+.product-field-value {
+  line-height: 1.45;
+}
+
 .summary-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -195,6 +236,16 @@ button:disabled {
 .summary-item {
   padding: 10px;
   background: #f8fafc;
+}
+
+.summary-item-featured {
+  border-color: #a9c2eb;
+  background: #f2f7ff;
+  box-shadow: inset 3px 0 0 #2d6cdf;
+}
+
+.summary-item-wide {
+  grid-column: 1 / -1;
 }
 
 .section-card {
@@ -252,6 +303,35 @@ button:disabled {
   color: #36424d;
 }
 
+.purchase-price-section {
+  border-color: #a8c5ed;
+  background: #fbfdff;
+}
+
+.purchase-metric-row {
+  align-items: stretch;
+}
+
+.purchase-metric-card {
+  min-width: 0;
+}
+
+.purchase-list {
+  margin-top: 12px;
+}
+
+.purchase-price-card {
+  border-left: 4px solid #5d91db;
+  background: #f8fbff;
+}
+
+.purchase-price-card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
 .price-list {
   margin-top: 10px;
 }
@@ -286,6 +366,139 @@ button:disabled {
   color: #1f2933;
   overflow-wrap: anywhere;
   word-break: break-word;
+}
+
+.multiline-value {
+  white-space: pre-line;
+}
+
+.quote-history-section {
+  border-color: #d3c2ea;
+  background: #fdfbff;
+}
+
+.quote-list {
+  display: grid;
+  gap: 10px;
+}
+
+.quote-card {
+  box-sizing: border-box;
+  padding: 11px;
+  border: 1px solid #d9ccea;
+  border-left: 4px solid #8462b4;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.quote-card-compact {
+  padding: 9px;
+}
+
+.quote-card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.quote-card-kicker {
+  margin-bottom: 2px;
+  color: #756488;
+  font-size: 10px;
+  font-weight: bold;
+  text-transform: uppercase;
+}
+
+.quote-card-title {
+  color: #342548;
+  font-size: 14px;
+  font-weight: bold;
+  overflow-wrap: anywhere;
+}
+
+.quote-meta .field-row {
+  grid-template-columns: 125px minmax(0, 1fr);
+}
+
+.quote-status {
+  color: #31533a;
+  font-weight: bold;
+}
+
+.latest-efes-quote-section {
+  border: 1px solid #d8b35b;
+  background: #fffaf0;
+  box-shadow: inset 4px 0 0 #d59a23;
+}
+
+.efes-last-quote-card {
+  padding: 11px;
+  border: 1px solid #e2c271;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.efes-last-quote-card.outside-period {
+  margin-top: 8px;
+  border-style: dashed;
+  background: #fffdf8;
+}
+
+.efes-last-quote-empty {
+  padding: 10px;
+  border-radius: 7px;
+  background: #fff3d8;
+  color: #765617;
+  font-weight: bold;
+}
+
+.efes-last-quote-outside-note {
+  margin-top: 10px;
+  color: #765617;
+  font-size: 12px;
+  font-weight: bold;
+}
+
+.competitor-price {
+  border-color: #df7a7a;
+  border-left-color: #c62828;
+  background: #fff4f4;
+  box-shadow: inset 3px 0 0 rgba(198, 40, 40, 0.12);
+}
+
+.competitor-badge {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 8px;
+  border: 1px solid #e38a8a;
+  border-radius: 999px;
+  background: #ffe0e0;
+  color: #a61d1d;
+  font-size: 10px;
+  font-weight: bold;
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+
+.sap-codes-section {
+  border-color: #b9d8d5;
+  background: #f9fdfd;
+}
+
+.sap-code-card {
+  border-left: 4px solid #3d928a;
+}
+
+.sap-code-item {
+  border-color: #cbd9e6;
+  background: #f8fbff;
+}
+
+.sap-code-item .field-row {
+  grid-template-columns: 70px minmax(0, 1fr);
 }
 
 .empty-value {
@@ -334,9 +547,12 @@ button:disabled {
 .raw-json-block {
   width: 100%;
   max-width: 100%;
+  max-height: 300px;
   margin-top: 12px;
   padding: 12px;
   box-sizing: border-box;
+  overflow-x: hidden;
+  overflow-y: auto;
   border: 1px solid #b9c4ce;
   border-radius: 8px;
   background: #eef1f4;
@@ -366,7 +582,7 @@ button:disabled {
 .raw-json-pre {
   width: 100%;
   max-width: 100%;
-  max-height: 300px;
+  max-height: 220px;
   margin: 5px 0 0 0;
   padding: 10px;
   box-sizing: border-box;
