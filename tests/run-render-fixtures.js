@@ -125,23 +125,21 @@ function evaluateCase(testCase, resultBlock, statusBlock) {
   const mainHtml = stripDetails(html);
   const checks = [];
 
-  addCheck(checks, "Диагностический блок виден сразу", mainHtml.includes("raw-json-block") && mainHtml.includes("Сырой ответ 1С"));
-  addCheck(checks, "В диагностическом блоке показаны код и HTTP status", mainHtml.includes(`Код: ${testCase.inputCode || ""}`) && mainHtml.includes(`HTTP: ${testCase.httpStatus || 200}`));
-  addCheck(checks, "Content-Type показан", mainHtml.includes("Content-Type:"));
+  addCheck(checks, "Диагностический блок сырого JSON выключен", !mainHtml.includes("raw-json-block") && !mainHtml.includes("Сырой ответ 1С"));
 
   if (testCase.rawResponseText !== undefined) {
     addCheck(checks, "Показана понятная ошибка парсинга JSON", html.includes("JSON не удалось разобрать"));
     addCheck(checks, "HTML из сырого ответа экранирован", html.includes("&lt;html&gt;") && !mainHtml.includes("<html>"));
-    addCheck(checks, "Исходный невалидный ответ виден вне details", mainHtml.includes("&lt;html&gt;"));
+    addCheck(checks, "Исходный невалидный ответ доступен только в техническом details", !mainHtml.includes("&lt;html&gt;") && html.includes("&lt;html&gt;"));
     return buildResult(testCase, checks, html, statusBlock);
   }
 
-  addCheck(checks, "Сырой и pretty JSON показаны в диагностическом блоке", containsRawJson(html) && mainHtml.includes("Сырой текст ответа") && mainHtml.includes("Сырой JSON от 1С"));
+  addCheck(checks, "Сырой и pretty JSON не показаны в основном UI", !containsRawJson(mainHtml) && !mainHtml.includes("Сырой JSON от 1С"));
 
   if (testCase.httpStatus && testCase.httpStatus >= 400) {
-    addCheck(checks, "HTTP status backend показан понятно", mainHtml.includes(`HTTP: ${testCase.httpStatus}`));
+    addCheck(checks, "HTTP status backend показан понятно", mainHtml.includes("HTTP-статус") && mainHtml.includes(String(testCase.httpStatus)));
     addCheck(checks, "JSON-обертка ошибки разобрана в поля", html.includes("source_status") && html.includes("1С вернула внутреннюю ошибку"));
-    addCheck(checks, "Сырой ответ ошибки виден вне technical details", mainHtml.includes("source_status"));
+    addCheck(checks, "Структурированные данные ошибки видны вне technical details", mainHtml.includes("source_status"));
     return buildResult(testCase, checks, html, statusBlock);
   }
 
@@ -149,7 +147,7 @@ function evaluateCase(testCase, resultBlock, statusBlock) {
 
   if (expected.fallback) {
     addCheck(checks, "Неожиданный формат уходит в fallback", html.includes("формат отличается от ожидаемого"));
-    addCheck(checks, "Диагностический блок остаётся видимым после fallback", mainHtml.includes("Сырой JSON от 1С"));
+    addCheck(checks, "Диагностический блок не появляется после fallback", !mainHtml.includes("Сырой JSON от 1С"));
     return buildResult(testCase, checks, html, statusBlock);
   }
 
@@ -218,7 +216,7 @@ function evaluateCase(testCase, resultBlock, statusBlock) {
   }
 
   if (expected.security) {
-    addCheck(checks, "HTML/JS значения экранированы", html.includes("&lt;script&gt;") && html.includes("&lt;b&gt;") && !mainHtml.includes("<script>") && !mainHtml.includes("<b>"));
+    addCheck(checks, "HTML/JS значения экранированы", html.includes("&lt;script&gt;") && html.includes("SAFE-&lt;END&gt;") && !mainHtml.includes("<script>") && !mainHtml.includes("<END>"));
   }
 
   return buildResult(testCase, checks, html, statusBlock);

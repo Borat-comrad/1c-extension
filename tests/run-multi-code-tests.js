@@ -172,9 +172,7 @@ function runMixedRenderCase() {
   addCheck(checks, "Успешная карточка отображается", html.includes("Код: A") && html.includes("metric-card primary"));
   addCheck(checks, "Ошибочная карточка отображается", html.includes("Код: B") && html.includes("Код не найден"));
   addCheck(checks, "Общий поиск не падает и показывает summary", html.includes("Результаты поиска") && html.includes("Успешно") && html.includes("Ошибок"));
-  addCheck(checks, "В каждой карточке есть свой видимый сырой ответ", (html.match(/class="raw-json-block"/g) || []).length === 2);
-  addCheck(checks, "В карточках показаны метаданные ответов", html.includes("Код: A | HTTP: 200 | Content-Type: application/json; charset=utf-8") && html.includes("Код: B | HTTP: 404 | Content-Type: application/json"));
-  addCheck(checks, "В карточках показан pretty JSON", containsRawJson(html) && (html.match(/Сырой JSON от 1С/g) || []).length === 2);
+  addCheck(checks, "Сырой JSON выключен во всех карточках", !html.includes("raw-json-block") && !html.includes("Сырой JSON от 1С"));
   addCheck(checks, "Обновлённый summary работает внутри multi-code карточки", html.includes("product-summary-card") && html.includes("Группа / производитель") && html.includes("Код конечного производителя"));
 
   return buildResult("M06", "Несколько кодов: часть успешна, часть с ошибкой", checks, {

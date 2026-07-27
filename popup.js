@@ -2,7 +2,7 @@ const BASE_URL =
   "http://192.168.11.240:8282/crm/hs/service_avtm_vne1c/information_code_producer";
 const MAX_CODES_PER_SEARCH = 20;
 const MAX_PARALLEL_REQUESTS = 2;
-const SHOW_RAW_1C_RESPONSE = true;
+const SHOW_RAW_1C_RESPONSE = false;
 
 const codeInput = document.getElementById("code");
 const loginInput = document.getElementById("login");

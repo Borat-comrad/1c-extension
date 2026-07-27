@@ -106,7 +106,7 @@ function runCase(testCase) {
     addCheck(checks, "Цена КП показана отдельно", html.includes("2612 EUR") && html.includes("quote-card"));
     addCheck(checks, "Дата и номер КП показаны", html.includes("2026-06-12") && html.includes("БЕВ26-КП-00008412"));
     addCheck(checks, "SAP-код объектом показан", html.includes("sap-code-card") && html.includes("Балтика группа пивоваренных компаний") && html.includes("d1.711.450.003"));
-    addCheck(checks, "Сырой JSON остаётся видимым и экранированным", rawHtml.includes("raw-json-block") && rawHtml.includes("Сырой JSON от 1С") && rawHtml.includes("&quot;ИсторияЦен&quot;"));
+    addCheck(checks, "Сырой JSON выключен флагом", rawHtml === "");
   }
 
   if (testCase.id === "NC02") {
