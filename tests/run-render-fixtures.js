@@ -125,16 +125,18 @@ function evaluateCase(testCase, resultBlock, statusBlock) {
   const mainHtml = stripDetails(html);
   const checks = [];
 
-  addCheck(checks, "Диагностический блок сырого JSON выключен", !mainHtml.includes("raw-json-block") && !mainHtml.includes("Сырой ответ 1С"));
+  addCheck(checks, "Есть один свёрнутый диагностический блок", countOccurrences(html, "raw-response-details") === 1 && !html.includes("<details class=\"raw-response-details\" open"));
+  addCheck(checks, "Диагностический блок содержит HTTP-метаданные", html.includes(`HTTP: ${testCase.httpStatus || 200}`) && html.includes("Content-Type:"));
 
   if (testCase.rawResponseText !== undefined) {
     addCheck(checks, "Показана понятная ошибка парсинга JSON", html.includes("JSON не удалось разобрать"));
     addCheck(checks, "HTML из сырого ответа экранирован", html.includes("&lt;html&gt;") && !mainHtml.includes("<html>"));
-    addCheck(checks, "Исходный невалидный ответ доступен только в техническом details", !mainHtml.includes("&lt;html&gt;") && html.includes("&lt;html&gt;"));
+    addCheck(checks, "Исходный невалидный ответ показан один раз", countOccurrences(html, "&lt;html&gt;") === 1);
     return buildResult(testCase, checks, html, statusBlock);
   }
 
-  addCheck(checks, "Сырой и pretty JSON не показаны в основном UI", !containsRawJson(mainHtml) && !mainHtml.includes("Сырой JSON от 1С"));
+  addCheck(checks, "JSON не дублируется в диагностике", countOccurrences(html, "raw-json-pre") === 1 && !html.includes("Сырой JSON от 1С"));
+  addCheck(checks, "JSON не показан вне details", !containsRawJson(mainHtml));
 
   if (testCase.httpStatus && testCase.httpStatus >= 400) {
     addCheck(checks, "HTTP status backend показан понятно", mainHtml.includes("HTTP-статус") && mainHtml.includes(String(testCase.httpStatus)));
@@ -147,21 +149,34 @@ function evaluateCase(testCase, resultBlock, statusBlock) {
 
   if (expected.fallback) {
     addCheck(checks, "Неожиданный формат уходит в fallback", html.includes("формат отличается от ожидаемого"));
-    addCheck(checks, "Диагностический блок не появляется после fallback", !mainHtml.includes("Сырой JSON от 1С"));
+    addCheck(checks, "Fallback использует один диагностический блок", countOccurrences(html, "raw-response-details") === 1 && countOccurrences(html, "raw-json-pre") === 1);
     return buildResult(testCase, checks, html, statusBlock);
   }
 
-  addCheck(checks, "Показан код производителя", html.includes(testCase.inputCode));
-  addCheck(checks, "Summary содержит код конечного производителя", html.includes("Код конечного производителя"));
-  addCheck(checks, "Поле Группа подписано как производитель", html.includes("Группа / производитель"));
-  addCheck(checks, "Summary содержит расширенное наименование", html.includes("Расширенное наименование"));
+  addCheck(checks, "Показан код производителя", mainHtml.includes(testCase.inputCode));
+  addCheck(checks, "Summary содержит код конечного производителя", mainHtml.includes("Код конечного производителя"));
+  addCheck(checks, "Поле Группа подписано как производитель", mainHtml.includes("Группа / производитель"));
+  addCheck(checks, "Summary содержит расширенное наименование", mainHtml.includes("Расширенное наименование"));
 
   if (expected.lastPrice) {
-    addCheck(checks, `Показана последняя цена: ${expected.lastPrice}`, html.includes(expected.lastPrice));
+    addCheck(checks, `Показана последняя цена: ${expected.lastPrice}`, mainHtml.includes(expected.lastPrice));
   }
 
   if (expected.averagePrice) {
-    addCheck(checks, `Показана средняя цена: ${expected.averagePrice}`, html.includes(expected.averagePrice));
+    addCheck(checks, `Показана средняя цена: ${expected.averagePrice}`, mainHtml.includes(expected.averagePrice));
+  }
+
+  if (expected.averagePrices) {
+    expected.averagePrices.forEach((average) => {
+      addCheck(
+        checks,
+        `Средняя ${average.currency}: ${average.value}, записей: ${average.count}`,
+        mainHtml.includes(average.currency)
+          && mainHtml.includes(average.value)
+          && mainHtml.includes(`${average.count} шт.`)
+      );
+    });
+    addCheck(checks, "Нет единого среднего для разных валют", !mainHtml.includes("разные валюты"));
   }
 
   if (typeof expected.pricesCount === "number") {
@@ -248,7 +263,7 @@ function collectRenderedSignals(html) {
     hasAveragePriceCard: html.includes("metric-card accent"),
     hasPriceList: html.includes("price-list"),
     hasDetails: html.includes("<details"),
-    hasRawResponseBlock: html.includes("raw-json-block"),
+    hasRawResponseBlock: html.includes("raw-response-details"),
     priceItems: countOccurrences(html, "price-item"),
     recordItems: countOccurrences(html, "record-item")
   };

@@ -2,7 +2,10 @@ const BASE_URL =
   "http://192.168.11.240:8282/crm/hs/service_avtm_vne1c/information_code_producer";
 const MAX_CODES_PER_SEARCH = 20;
 const MAX_PARALLEL_REQUESTS = 2;
-const SHOW_RAW_1C_RESPONSE = false;
+const PURCHASE_LIST_INITIAL_LIMIT = 4;
+const QUOTE_GROUPS_INITIAL_LIMIT = 3;
+const SAP_CODES_INITIAL_LIMIT = 5;
+const SHOW_RAW_1C_RESPONSE = true;
 
 const codeInput = document.getElementById("code");
 const loginInput = document.getElementById("login");
@@ -25,6 +28,8 @@ const EXPECTED_RESPONSE_KEYS = [
   "РасширенноеНаименование",
   "Группа"
 ];
+
+resultBlock.addEventListener("click", handleResultClick);
 
 document.addEventListener("DOMContentLoaded", async () => {
   const savedData = await chrome.storage.local.get(["lastCode", "login"]);
@@ -336,18 +341,21 @@ function handleHttpErrorResponse(status, statusText, responseText) {
 }
 
 function renderResult(data, code, diagnosticResult) {
-  const resultView = buildResultView(data, code);
+  const resultView = buildResultView(data, code, {
+    showTechnicalResponse: !diagnosticResult
+  });
   resultBlock.className = resultView.className;
   resultBlock.innerHTML = `${resultView.html}${diagnosticResult ? renderRawResponseBlock(diagnosticResult) : ""}`;
 }
 
-function buildResultView(data, code) {
+function buildResultView(data, code, options = {}) {
   if (!isExpectedResponseShape(data)) {
     return {
       className: "result-card",
       html: renderTechnicalFallbackSection(
         "Ответ получен, но формат отличается от ожидаемого.",
-        JSON.stringify(data, null, 2)
+        JSON.stringify(data, null, 2),
+        { showTechnicalResponse: options.showTechnicalResponse !== false }
       )
     };
   }
@@ -368,9 +376,7 @@ function buildResultView(data, code) {
 }
 
 function renderProductSummary(data, code) {
-  const titleValue = !isEmptyValue(data["РасширенноеНаименование"])
-    ? data["РасширенноеНаименование"]
-    : (!isEmptyValue(data["Бренд"]) ? data["Бренд"] : code);
+  const titleValue = getProductTitle(data, code);
 
   return `
     <section class="product-summary-card" aria-label="Карточка детали">
@@ -389,6 +395,21 @@ function renderProductSummary(data, code) {
       </div>
     </section>
   `;
+}
+
+function getProductTitle(data, code) {
+  if (!isEmptyValue(data["РасширенноеНаименование"])) {
+    const firstMeaningfulLine = String(data["РасширенноеНаименование"])
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .find((line) => line !== "");
+
+    if (firstMeaningfulLine) {
+      return firstMeaningfulLine;
+    }
+  }
+
+  return !isEmptyValue(data["Бренд"]) ? data["Бренд"] : code;
 }
 
 function renderProductField(label, value, options = {}) {
@@ -413,8 +434,9 @@ function renderProductField(label, value, options = {}) {
 
 function renderPurchasePricesSection(data) {
   const purchaseEntries = getPurchaseEntries(data["ИсторияЦен"]);
-  const latestEntry = findLatestPurchaseEntry(purchaseEntries);
-  const average = calculateAveragePurchasePrice(purchaseEntries);
+  const latestSelection = getLatestPurchaseSelection(purchaseEntries);
+  const latestEntry = latestSelection.entry;
+  const averageGroups = calculateAveragePurchasePricesByCurrency(purchaseEntries);
 
   return `
     <section class="section-card purchase-price-section">
@@ -427,101 +449,189 @@ function renderPurchasePricesSection(data) {
             : renderEmptyValue(null)}</div>
           <div class="metric-note">${latestEntry ? renderEmptyValue(latestEntry["Контрагент"]) : renderEmptyValue(null)}</div>
           ${latestEntry && !isEmptyValue(latestEntry["ДатаКП"])
-            ? `<div class="metric-note">Дата КП: ${renderEmptyValue(latestEntry["ДатаКП"])}</div>`
+            ? `<div class="metric-note">Дата КП: ${renderDateValue(latestEntry["ДатаКП"])}</div>`
             : ""}
           ${latestEntry && !isEmptyValue(latestEntry["НомерКП"])
             ? `<div class="metric-note">КП: ${renderEmptyValue(latestEntry["НомерКП"])}</div>`
             : ""}
+          ${latestSelection.sameLatestDateCount > 1
+            ? `<div class="metric-note latest-purchase-note">Последняя запись за ${escapeHtml(formatDateDisplay(latestEntry["ДатаКП"]))}</div>`
+            : ""}
         </div>
         <div class="purchase-metric-card metric-card accent">
-          <div class="metric-label">Средняя закупочная цена</div>
-          <div class="metric-value">${average
-            ? escapeHtml(`${average.value} ${average.currency || EMPTY_TEXT}`)
-            : renderEmptyValue(null)}</div>
-          <div class="metric-note">Учитываются все числовые закупочные цены</div>
+          <div class="metric-label">${averageGroups.length === 1 ? "Средняя закупочная цена" : "Средние закупочные цены"}</div>
+          ${renderAveragePurchasePrices(averageGroups)}
+          <div class="metric-note">${averageGroups.length > 1
+            ? "Среднее рассчитано отдельно для каждой валюты"
+            : "Учитываются все числовые закупочные цены"}</div>
         </div>
       </div>
-      <div class="purchase-list price-list">
+      <div class="purchase-list price-list collapsible-list-section" data-expand-list-section="purchase" data-expanded="false">
         <h4>Список закупочных цен</h4>
         ${purchaseEntries.length > 0
-          ? purchaseEntries.map((entry, index) => renderPurchasePriceCard(entry, index)).join("")
+          ? purchaseEntries
+            .map((entry, index) => renderPurchasePriceCard(entry, index, {
+              isOverflow: index >= PURCHASE_LIST_INITIAL_LIMIT
+            }))
+            .join("")
           : `<div class="empty-value">${EMPTY_TEXT}</div>`}
+        ${purchaseEntries.length > PURCHASE_LIST_INITIAL_LIMIT
+          ? renderExpandListButton(
+            "purchase",
+            purchaseEntries.length,
+            "Показать все закупочные цены",
+            "Свернуть закупочные цены"
+          )
+          : ""}
       </div>
     </section>
   `;
 }
 
-function renderPurchasePriceCard(entry, index) {
+function renderAveragePurchasePrices(groups) {
+  if (!Array.isArray(groups) || groups.length === 0) {
+    return `<div class="metric-value">${renderEmptyValue(null)}</div>`;
+  }
+
+  if (groups.length === 1) {
+    const group = groups[0];
+    return `
+      <div class="metric-value">${escapeHtml(formatAverageMoney(group.average, group.currencyLabel))}</div>
+      <div class="average-price-count">Записей: ${escapeHtml(group.count)}</div>
+    `;
+  }
+
+  return `
+    <div class="average-price-list">
+      ${groups.map((group) => `
+        <div class="average-price-row">
+          <span class="average-currency">${escapeHtml(group.currencyLabel)}</span>
+          <span class="average-value">${escapeHtml(formatAverageNumber(group.average))}</span>
+          <span class="average-price-count">${escapeHtml(group.count)} шт.</span>
+        </div>
+      `).join("")}
+    </div>
+  `;
+}
+
+function renderPurchasePriceCard(entry, index, options = {}) {
   const competitor = isCompetitorEntry(entry);
-  const classes = ["purchase-price-card", "price-item"];
+  const classes = ["purchase-price-card", "price-item", "collapsible-item"];
 
   if (competitor) {
     classes.push("competitor-price");
   }
 
+  if (options.isOverflow) {
+    classes.push("is-collapsed");
+  }
+
   return `
-    <article class="${classes.join(" ")}">
+    <article class="${classes.join(" ")}"${options.isOverflow ? ' data-collapsible-overflow="true"' : ""}>
       <div class="price-title purchase-price-card-header">
         <span>${index + 1}. ${renderEmptyValue(entry["Контрагент"])}</span>
         ${competitor ? renderCompetitorBadge() : ""}
       </div>
       ${!isEmptyValue(entry["ТипКонтрагента"]) ? renderFieldRow("Тип контрагента", entry["ТипКонтрагента"]) : ""}
       ${renderFieldRow("Цена закупки", formatMoney(getPurchasePrice(entry), getPurchaseCurrency(entry)))}
-      ${!isEmptyValue(entry["ДатаКП"]) ? renderFieldRow("Дата КП", entry["ДатаКП"]) : ""}
+      ${!isEmptyValue(entry["ДатаКП"]) ? renderFieldRowHtml("Дата КП", renderDateValue(entry["ДатаКП"])) : ""}
       ${!isEmptyValue(entry["НомерКП"]) ? renderFieldRow("Номер КП", entry["НомерКП"]) : ""}
-      ${!isEmptyValue(entry["Клиент"]) ? renderFieldRow("Клиент", entry["Клиент"]) : ""}
-      ${!isEmptyValue(entry["СтатусКП"]) ? renderFieldRow("Статус КП", entry["СтатусКП"]) : ""}
+      ${!isEmptyValue(entry["Клиент"]) || !isEmptyValue(entry["СтатусКП"]) ? `
+        <div class="purchase-context">
+          ${!isEmptyValue(entry["Клиент"]) ? `<span>${renderEmptyValue(entry["Клиент"])}</span>` : ""}
+          ${!isEmptyValue(entry["СтатусКП"])
+            ? `<span class="quote-status ${getQuoteStatusClass(entry["СтатусКП"])}">${renderEmptyValue(entry["СтатусКП"])}</span>`
+            : ""}
+        </div>
+      ` : ""}
     </article>
   `;
 }
 
 function renderQuoteHistorySection(data) {
   const quoteEntries = getQuoteEntries(data["ИсторияЦен"]);
+  const quoteGroups = groupQuoteEntries(quoteEntries);
 
   return `
     <section class="section-card quote-history-section">
       <h3>История КП / предложений</h3>
-      <div class="quote-list">
-        ${quoteEntries.length > 0
-          ? quoteEntries.map((entry, index) => renderQuoteCard(entry, index)).join("")
+      <div class="quote-list collapsible-list-section" data-expand-list-section="quotes" data-expanded="false">
+        ${quoteGroups.length > 0
+          ? quoteGroups
+            .map((group, index) => renderQuoteGroupCard(group, index, {
+              isOverflow: index >= QUOTE_GROUPS_INITIAL_LIMIT
+            }))
+            .join("")
           : `<div class="empty-value">${EMPTY_TEXT}</div>`}
+        ${quoteGroups.length > QUOTE_GROUPS_INITIAL_LIMIT
+          ? renderExpandListButton(
+            "quotes",
+            quoteGroups.length,
+            "Показать всю историю КП",
+            "Свернуть историю КП"
+          )
+          : ""}
       </div>
     </section>
   `;
 }
 
-function renderQuoteCard(entry, index, options = {}) {
+function renderQuoteGroupCard(group, index, options = {}) {
+  const classes = ["quote-group-card", "quote-card", "collapsible-item"];
+
+  if (options.isOverflow) {
+    classes.push("is-collapsed");
+  }
+
+  return `
+    <article class="${classes.join(" ")}"${options.isOverflow ? ' data-collapsible-overflow="true"' : ""}>
+      <div class="quote-group-header quote-card-header">
+        <div>
+          <div class="quote-card-kicker">КП ${index + 1}</div>
+          <div class="quote-card-title">КП ${renderEmptyValue(group.number)}</div>
+        </div>
+        <span class="quote-status ${getQuoteStatusClass(group.status)}">${renderEmptyValue(group.status)}</span>
+      </div>
+      <div class="quote-meta">
+        ${renderFieldRowHtml("Дата КП", renderDateValue(group.date))}
+        ${renderFieldRow("Клиент", group.client)}
+      </div>
+      <div class="quote-offers-title">Предложения: ${escapeHtml(group.entries.length)}</div>
+      <div class="quote-offers-list">
+        ${group.entries.map((entry, offerIndex) => renderQuoteOfferRow(entry, offerIndex)).join("")}
+      </div>
+    </article>
+  `;
+}
+
+function renderQuoteOfferRow(entry, index) {
   const competitor = isCompetitorEntry(entry);
-  const classes = ["quote-card"];
+  const classes = ["quote-offer-row"];
 
   if (competitor) {
     classes.push("competitor-price");
   }
 
-  if (options.compact) {
-    classes.push("quote-card-compact");
-  }
-
   return `
-    <article class="${classes.join(" ")}">
-      <div class="quote-card-header">
-        <div>
-          <div class="quote-card-kicker">КП ${index + 1}</div>
-          <div class="quote-card-title">${renderEmptyValue(entry["НомерКП"])}</div>
-        </div>
+    <div class="${classes.join(" ")}">
+      <div class="quote-offer-header">
+        <span>${index + 1}. ${renderEmptyValue(entry["Контрагент"])}</span>
         ${competitor ? renderCompetitorBadge() : ""}
       </div>
-      <div class="quote-meta">
-        ${renderFieldRow("Дата КП", entry["ДатаКП"])}
-        ${renderFieldRow("Клиент", entry["Клиент"])}
-        ${renderFieldRow("Контрагент / поставщик", entry["Контрагент"])}
-        ${renderFieldRow("Закупка", formatMoney(getPurchasePrice(entry), getPurchaseCurrency(entry)))}
-        ${renderFieldRow("Цена КП", formatMoney(getQuotePrice(entry), getQuoteCurrency(entry)))}
-        ${renderFieldRow("Статус КП", entry["СтатусКП"], { valueClass: "quote-status" })}
-        ${!isEmptyValue(entry["ТипКонтрагента"]) ? renderFieldRow("Тип контрагента", entry["ТипКонтрагента"]) : ""}
+      ${!isEmptyValue(entry["ТипКонтрагента"])
+        ? `<div class="quote-offer-type">${renderEmptyValue(entry["ТипКонтрагента"])}</div>`
+        : ""}
+      <div class="quote-offer-prices">
+        <div><span>Закупка</span><strong>${escapeHtml(formatMoney(getPurchasePrice(entry), getPurchaseCurrency(entry)))}</strong></div>
+        <div><span>Цена КП</span><strong>${escapeHtml(formatMoney(getQuotePrice(entry), getQuoteCurrency(entry)))}</strong></div>
       </div>
-    </article>
+    </div>
   `;
+}
+
+function renderQuoteCard(entry, index, options = {}) {
+  const group = createQuoteGroup([entry], `single:${index}`, index);
+  return renderQuoteGroupCard(group, index, options);
 }
 
 function renderLatestEfesQuoteSection(data) {
@@ -558,10 +668,12 @@ function renderLatestEfesQuoteDetails(entry) {
       <div class="quote-card-title">КП ${renderEmptyValue(entry["НомерКП"])}</div>
       ${isCompetitorEntry(entry) ? renderCompetitorBadge() : ""}
     </div>
-    ${renderFieldRow("Дата КП", entry["ДатаКП"])}
+    ${renderFieldRowHtml("Дата КП", renderDateValue(entry["ДатаКП"]))}
     ${renderFieldRow("Клиент", entry["Клиент"])}
     ${renderFieldRow("Цена КП", formatMoney(getQuotePrice(entry), getQuoteCurrency(entry)))}
-    ${renderFieldRow("Статус КП", entry["СтатусКП"], { valueClass: "quote-status" })}
+    ${renderFieldRow("Статус КП", entry["СтатусКП"], {
+      valueClass: `quote-status ${getQuoteStatusClass(entry["СтатусКП"])}`
+    })}
     ${renderFieldRow("Контрагент", entry["Контрагент"])}
     ${isNumberValue(getPurchasePrice(entry))
       ? renderFieldRow("Цена закупки", formatMoney(getPurchasePrice(entry), getPurchaseCurrency(entry)))
@@ -605,21 +717,39 @@ function renderSapCodesSection(data) {
     <section class="section-card sap-codes-section">
       <h3>SAP-коды</h3>
       <div class="records-count">Записей: ${sapCodes.length}</div>
-      <div class="records-list sap-codes-list">
-        ${sapCodes.map((item, index) => renderSapCodeItem(item, index)).join("")}
+      <div class="records-list sap-codes-list collapsible-list-section" data-expand-list-section="sap" data-expanded="false">
+        ${sapCodes.map((item, index) => renderSapCodeItem(item, index, {
+          isOverflow: index >= SAP_CODES_INITIAL_LIMIT
+        })).join("")}
+        ${sapCodes.length > SAP_CODES_INITIAL_LIMIT
+          ? renderExpandListButton(
+            "sap",
+            sapCodes.length,
+            "Показать все SAP-коды",
+            "Свернуть SAP-коды"
+          )
+          : ""}
       </div>
     </section>
   `;
 }
 
-function renderSapCodeItem(item, index) {
+function renderSapCodeItem(item, index, options = {}) {
+  const itemClasses = ["sap-code-card", "record-item", "sap-code-item", "collapsible-item"];
+
+  if (options.isOverflow) {
+    itemClasses.push("is-collapsed");
+  }
+
+  const itemAttributes = options.isOverflow ? ' data-collapsible-overflow="true"' : "";
+
   if (item && typeof item === "object" && !Array.isArray(item)) {
     const hasStructuredSapFields = Object.prototype.hasOwnProperty.call(item, "Клиент")
       || Object.prototype.hasOwnProperty.call(item, "SAPКод");
 
     if (!hasStructuredSapFields) {
       return `
-        <article class="sap-code-card record-item sap-code-item">
+        <article class="${itemClasses.join(" ")}"${itemAttributes}>
           <div class="record-title">${index + 1}.</div>
           ${Object.entries(item).map(([key, value]) => renderFieldRow(key, value)).join("")}
         </article>
@@ -627,7 +757,7 @@ function renderSapCodeItem(item, index) {
     }
 
     return `
-      <article class="sap-code-card record-item sap-code-item">
+      <article class="${itemClasses.join(" ")}"${itemAttributes}>
         <div class="record-title">${index + 1}.</div>
         ${renderFieldRow("Клиент", item["Клиент"])}
         ${renderFieldRow("SAP-код", item["SAPКод"])}
@@ -637,7 +767,7 @@ function renderSapCodeItem(item, index) {
 
   if (typeof item !== "string") {
     return `
-      <article class="sap-code-card record-item sap-code-item">
+      <article class="${itemClasses.join(" ")}"${itemAttributes}>
         <div class="record-title">${index + 1}.</div>
         <div class="field-value">${renderEmptyValue(item)}</div>
       </article>
@@ -648,7 +778,7 @@ function renderSapCodeItem(item, index) {
 
   if (lastCommaIndex === -1) {
     return `
-      <article class="sap-code-card record-item sap-code-item">
+      <article class="${itemClasses.join(" ")}"${itemAttributes}>
         <div class="record-title">${index + 1}.</div>
         <div class="field-value">${renderEmptyValue(item)}</div>
       </article>
@@ -659,7 +789,7 @@ function renderSapCodeItem(item, index) {
   const sapCode = item.slice(lastCommaIndex + 1).trim();
 
   return `
-    <article class="sap-code-card record-item sap-code-item">
+    <article class="${itemClasses.join(" ")}"${itemAttributes}>
       <div class="record-title">${index + 1}.</div>
       ${renderFieldRow("Клиент", client)}
       ${renderFieldRow("SAP-код", sapCode)}
@@ -693,7 +823,7 @@ function renderRawJsonBlock(result) {
     ? "недоступен"
     : result.status;
   const contentType = result.contentType || "";
-  const rawText = result.rawText === undefined || result.rawText === null ? "" : result.rawText;
+  const rawText = result.rawText === undefined || result.rawText === null ? "" : String(result.rawText);
   const metaParts = [
     `Код: ${result.code || ""}`,
     `HTTP: ${status}`
@@ -713,17 +843,16 @@ function renderRawJsonBlock(result) {
     }
   }
 
+  const responseBody = prettyJson || rawText || "Тело ответа пустое.";
+
   return `
-    <div class="raw-json-block">
-      <div class="raw-json-title">Сырой ответ 1С</div>
-      <div class="raw-json-meta">${metaParts.map((part) => escapeHtml(part)).join(" | ")}</div>
-      <div class="raw-json-subtitle">Сырой текст ответа</div>
-      <pre class="raw-json-pre">${escapeHtml(rawText)}</pre>
-      ${prettyJson ? `
-        <div class="raw-json-subtitle">Сырой JSON от 1С</div>
-        <pre class="raw-json-pre">${escapeHtml(prettyJson)}</pre>
-      ` : ""}
-    </div>
+    <details class="raw-response-details">
+      <summary class="raw-response-summary">Сырой ответ 1С</summary>
+      <div class="raw-response-content">
+        <div class="raw-json-meta">${metaParts.map((part) => escapeHtml(part)).join(" | ")}</div>
+        <pre class="raw-json-pre">${escapeHtml(responseBody)}</pre>
+      </div>
+    </details>
   `;
 }
 
@@ -733,10 +862,14 @@ function renderRawResponseBlock(result) {
 
 function renderBackendErrorResponse(status, statusText, data, rawText, diagnosticResult) {
   resultBlock.className = "result-card";
-  resultBlock.innerHTML = `${renderBackendErrorSection(status, statusText, data, rawText)}${diagnosticResult ? renderRawResponseBlock(diagnosticResult) : ""}`;
+  resultBlock.innerHTML = `${renderBackendErrorSection(status, statusText, data, rawText, {
+    showTechnicalResponse: !diagnosticResult
+  })}${diagnosticResult ? renderRawResponseBlock(diagnosticResult) : ""}`;
 }
 
-function renderBackendErrorSection(status, statusText, data, rawText) {
+function renderBackendErrorSection(status, statusText, data, rawText, options = {}) {
+  const showTechnicalResponse = options.showTechnicalResponse !== false;
+
   return `
     <section class="section-card error-card">
       <h3>1С вернула ошибку</h3>
@@ -744,10 +877,10 @@ function renderBackendErrorSection(status, statusText, data, rawText) {
       ${data && typeof data === "object" && !Array.isArray(data)
         ? renderStructuredValue(data)
         : renderFieldRow("Ответ", data)}
-      <details class="details-block">
+      ${showTechnicalResponse ? `<details class="details-block">
         <summary>Технический ответ</summary>
         <pre class="technical-response">${escapeHtml(rawText || "Тело ответа пустое.")}</pre>
-      </details>
+      </details>` : ""}
     </section>
   `;
 }
@@ -902,13 +1035,22 @@ function renderFieldRow(label, value, options = {}) {
   `;
 }
 
+function renderFieldRowHtml(label, valueHtml) {
+  return `
+    <div class="field-row">
+      <div class="field-label">${escapeHtml(label)}</div>
+      <div class="field-value">${valueHtml}</div>
+    </div>
+  `;
+}
+
 function renderCurrency(currency) {
-  return isEmptyValue(currency) ? "" : escapeHtml(currency);
+  return isEmptyValue(currency) ? "" : escapeHtml(normalizePurchaseCurrency(currency).currencyLabel);
 }
 
 function renderPriceValue(value) {
   if (typeof value === "number" && Number.isFinite(value)) {
-    return escapeHtml(Number.isInteger(value) ? String(value) : value.toFixed(2));
+    return escapeHtml(formatMoneyNumber(value));
   }
 
   return escapeHtml(value);
@@ -916,17 +1058,21 @@ function renderPriceValue(value) {
 
 function renderTechnicalFallback(message, rawText, diagnosticResult) {
   resultBlock.className = "result-card";
-  resultBlock.innerHTML = `${renderTechnicalFallbackSection(message, rawText)}${diagnosticResult ? renderRawResponseBlock(diagnosticResult) : ""}`;
+  resultBlock.innerHTML = `${renderTechnicalFallbackSection(message, rawText, {
+    showTechnicalResponse: !diagnosticResult
+  })}${diagnosticResult ? renderRawResponseBlock(diagnosticResult) : ""}`;
 }
 
-function renderTechnicalFallbackSection(message, rawText) {
+function renderTechnicalFallbackSection(message, rawText, options = {}) {
+  const showTechnicalResponse = options.showTechnicalResponse !== false;
+
   return `
     <section class="section-card error-card">
       <h3>${escapeHtml(message)}</h3>
-      <details class="details-block">
+      ${showTechnicalResponse ? `<details class="details-block">
         <summary>Технический ответ</summary>
         <pre class="technical-response">${escapeHtml(rawText)}</pre>
-      </details>
+      </details>` : ""}
     </section>
   `;
 }
@@ -979,7 +1125,9 @@ function renderMultiResultCard(result) {
 }
 
 function renderMultiSuccessCard(result) {
-  const resultView = buildResultView(result.data, result.code);
+  const resultView = buildResultView(result.data, result.code, {
+    showTechnicalResponse: false
+  });
 
   return `
     <article class="code-result-card success">
@@ -997,7 +1145,6 @@ function renderMultiSuccessCard(result) {
 
 function renderMultiErrorCard(result) {
   const statusValue = result.status ? `HTTP ${result.status}` : "";
-  const rawText = result.rawText || "Технический ответ пустой.";
 
   return `
     <article class="code-result-card failed">
@@ -1008,10 +1155,6 @@ function renderMultiErrorCard(result) {
       <section class="section-card error-card">
         ${statusValue ? renderFieldRow("HTTP-статус", statusValue) : ""}
         ${renderFieldRow("Сообщение", result.error || "Запрос завершился ошибкой.")}
-        <details class="details-block">
-          <summary>Технический ответ</summary>
-          <pre class="technical-response">${escapeHtml(rawText)}</pre>
-        </details>
       </section>
       ${renderRawResponseBlock(result)}
     </article>
@@ -1021,6 +1164,62 @@ function renderMultiErrorCard(result) {
 function setResultMessage(message) {
   resultBlock.className = "result-card empty";
   resultBlock.textContent = message;
+}
+
+function handleResultClick(event) {
+  const target = event && event.target;
+
+  if (!target || typeof target.closest !== "function") {
+    return;
+  }
+
+  const button = target.closest("button[data-expand-list]");
+
+  if (button) {
+    toggleExpandableList(button);
+  }
+}
+
+function toggleExpandableList(button) {
+  if (!button || typeof button.closest !== "function") {
+    return false;
+  }
+
+  const section = button.closest("[data-expand-list-section]");
+
+  if (!section || typeof section.querySelectorAll !== "function") {
+    return false;
+  }
+
+  const isExpanded = button.getAttribute("aria-expanded") === "true";
+  const nextExpanded = !isExpanded;
+  const overflowItems = section.querySelectorAll("[data-collapsible-overflow='true']");
+
+  overflowItems.forEach((item) => {
+    item.classList.toggle("is-collapsed", !nextExpanded);
+  });
+
+  section.dataset.expanded = String(nextExpanded);
+  button.setAttribute("aria-expanded", String(nextExpanded));
+  button.textContent = nextExpanded
+    ? button.dataset.collapseLabel
+    : `${button.dataset.expandLabel} (${button.dataset.total})`;
+
+  return nextExpanded;
+}
+
+function renderExpandListButton(listName, total, expandLabel, collapseLabel) {
+  return `
+    <button
+      type="button"
+      class="expand-list-button"
+      data-expand-list="${escapeHtml(listName)}"
+      data-expand-label="${escapeHtml(expandLabel)}"
+      data-collapse-label="${escapeHtml(collapseLabel)}"
+      data-total="${escapeHtml(total)}"
+      aria-expanded="false"
+    >${escapeHtml(expandLabel)} (${escapeHtml(total)})</button>
+  `;
 }
 
 function isEmptyValue(value) {
@@ -1051,21 +1250,83 @@ function isNumberValue(value) {
   return typeof value === "number" && Number.isFinite(value);
 }
 
+function roundMoneyValue(value) {
+  return Math.round((value + Math.sign(value || 1) * 1e-9) * 100) / 100;
+}
+
+function addThousandsSeparators(value) {
+  const parts = String(value).split(".");
+  const sign = parts[0].startsWith("-") ? "-" : "";
+  const integerDigits = sign ? parts[0].slice(1) : parts[0];
+  const formattedInteger = integerDigits.replace(/\B(?=(\d{3})+(?!\d))/g, " ");
+
+  return `${sign}${formattedInteger}${parts.length > 1 ? `.${parts[1]}` : ""}`;
+}
+
+function formatMoneyNumber(value) {
+  if (!isNumberValue(value)) {
+    return String(value);
+  }
+
+  const rounded = roundMoneyValue(value);
+  const formatted = Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(2);
+
+  return addThousandsSeparators(formatted);
+}
+
+function formatAverageNumber(value) {
+  return isNumberValue(value)
+    ? addThousandsSeparators(roundMoneyValue(value).toFixed(2))
+    : EMPTY_TEXT;
+}
+
 function formatMoney(value, currency) {
   if (isEmptyValue(value)) {
     return EMPTY_TEXT;
   }
 
-  const formattedValue = isNumberValue(value)
-    ? (Number.isInteger(value) ? String(value) : value.toFixed(2))
-    : String(value);
-  const formattedCurrency = isEmptyValue(currency) ? EMPTY_TEXT : String(currency).trim();
+  const formattedValue = isNumberValue(value) ? formatMoneyNumber(value) : String(value);
+  const formattedCurrency = normalizePurchaseCurrency(currency).currencyLabel;
 
   return `${formattedValue} ${formattedCurrency}`;
 }
 
+function formatAverageMoney(value, currencyLabel) {
+  return `${formatAverageNumber(value)} ${isEmptyValue(currencyLabel) ? EMPTY_TEXT : currencyLabel}`;
+}
+
 function normalizeText(value) {
   return isEmptyValue(value) ? "" : String(value).trim().toLowerCase();
+}
+
+function normalizePurchaseCurrency(value) {
+  if (isEmptyValue(value)) {
+    return {
+      currencyKey: "NO_CURRENCY",
+      currencyLabel: EMPTY_TEXT
+    };
+  }
+
+  const normalized = String(value).trim().replace(/\s+/g, " ").toUpperCase();
+
+  if (["РУБ.", "РУБ", "RUB", "₽"].includes(normalized)) {
+    return {
+      currencyKey: "RUB",
+      currencyLabel: "Руб."
+    };
+  }
+
+  if (["EUR", "€"].includes(normalized)) {
+    return {
+      currencyKey: "EUR",
+      currencyLabel: "EUR"
+    };
+  }
+
+  return {
+    currencyKey: normalized,
+    currencyLabel: normalized
+  };
 }
 
 function isCompetitorEntry(entry) {
@@ -1147,45 +1408,114 @@ function getQuoteEntries(history) {
 }
 
 function findLatestPurchaseEntry(entries) {
+  return getLatestPurchaseSelection(entries).entry;
+}
+
+function getLatestPurchaseSelection(entries) {
   if (!Array.isArray(entries) || entries.length === 0) {
-    return null;
+    return {
+      entry: null,
+      latestDate: null,
+      sameLatestDateCount: 0
+    };
   }
 
   let latestDatedEntry = null;
   let latestTimestamp = Number.NEGATIVE_INFINITY;
+  let sameLatestDateCount = 0;
 
   entries.forEach((entry) => {
     const parsedDate = parseDateSafe(entry && entry["ДатаКП"]);
 
-    if (parsedDate && parsedDate.getTime() >= latestTimestamp) {
+    if (!parsedDate) {
+      return;
+    }
+
+    const timestamp = parsedDate.getTime();
+
+    if (timestamp > latestTimestamp) {
       latestDatedEntry = entry;
-      latestTimestamp = parsedDate.getTime();
+      latestTimestamp = timestamp;
+      sameLatestDateCount = 1;
+      return;
+    }
+
+    if (timestamp === latestTimestamp) {
+      latestDatedEntry = entry;
+      sameLatestDateCount += 1;
     }
   });
 
-  return latestDatedEntry || entries[entries.length - 1];
+  if (latestDatedEntry) {
+    return {
+      entry: latestDatedEntry,
+      latestDate: new Date(latestTimestamp),
+      sameLatestDateCount
+    };
+  }
+
+  return {
+    entry: entries[entries.length - 1],
+    latestDate: null,
+    sameLatestDateCount: 0
+  };
 }
 
-function calculateAveragePurchasePrice(entries) {
+function calculateAveragePurchasePricesByCurrency(entries) {
   const purchaseEntries = getPurchaseEntries(entries);
 
   if (purchaseEntries.length === 0) {
+    return [];
+  }
+
+  const groups = new Map();
+
+  purchaseEntries.forEach((entry) => {
+    const currency = normalizePurchaseCurrency(getPurchaseCurrency(entry));
+
+    if (!groups.has(currency.currencyKey)) {
+      groups.set(currency.currencyKey, {
+        currencyKey: currency.currencyKey,
+        currencyLabel: currency.currencyLabel,
+        sum: 0,
+        count: 0
+      });
+    }
+
+    const group = groups.get(currency.currencyKey);
+    group.sum += getPurchasePrice(entry);
+    group.count += 1;
+  });
+
+  return [...groups.values()].map((group) => ({
+    currencyKey: group.currencyKey,
+    currencyLabel: group.currencyLabel,
+    average: roundMoneyValue(group.sum / group.count),
+    count: group.count
+  }));
+}
+
+function calculateAveragePurchasePrice(entries) {
+  const groups = calculateAveragePurchasePricesByCurrency(entries);
+
+  if (groups.length === 0) {
     return null;
   }
 
-  const sum = purchaseEntries.reduce((total, entry) => total + getPurchasePrice(entry), 0);
-  const purchaseCurrencies = purchaseEntries.map((entry) => getPurchaseCurrency(entry));
-  const hasMissingCurrency = purchaseCurrencies.some((currency) => currency === "");
-  const currencies = [...new Set(purchaseCurrencies.filter((currency) => currency !== ""))];
-  const average = sum / purchaseEntries.length;
-  const roundedAverage = Math.round((average + 1e-9) * 100) / 100;
+  if (groups.length === 1) {
+    return {
+      value: formatAverageNumber(groups[0].average).replaceAll(" ", ""),
+      currency: groups[0].currencyLabel === EMPTY_TEXT ? "" : groups[0].currencyLabel,
+      count: groups[0].count,
+      groups
+    };
+  }
 
   return {
-    value: roundedAverage.toFixed(2),
-    currency: hasMissingCurrency
-      ? ""
-      : (currencies.length > 1 ? "разные валюты" : (currencies[0] || "")),
-    count: purchaseEntries.length
+    value: null,
+    currency: "",
+    count: groups.reduce((total, group) => total + group.count, 0),
+    groups
   };
 }
 
@@ -1224,6 +1554,131 @@ function parseDateSafe(value) {
 
   const parsedDate = new Date(normalizedValue);
   return Number.isNaN(parsedDate.getTime()) ? null : parsedDate;
+}
+
+function formatDateDisplay(value) {
+  const parsedDate = parseDateSafe(value);
+
+  if (!parsedDate) {
+    return formatEmpty(value);
+  }
+
+  const day = String(parsedDate.getUTCDate()).padStart(2, "0");
+  const month = String(parsedDate.getUTCMonth() + 1).padStart(2, "0");
+  const year = parsedDate.getUTCFullYear();
+
+  return `${day}.${month}.${year}`;
+}
+
+function renderDateValue(value) {
+  const parsedDate = parseDateSafe(value);
+
+  if (!parsedDate) {
+    return renderEmptyValue(value);
+  }
+
+  return `<time datetime="${escapeHtml(String(value).trim())}">${escapeHtml(formatDateDisplay(value))}</time>`;
+}
+
+function getFirstNonEmptyEntryValue(entries, key) {
+  const entry = entries.find((item) => item && !isEmptyValue(item[key]));
+  return entry ? entry[key] : null;
+}
+
+function createQuoteGroup(entries, key, sourceIndex) {
+  const dates = entries
+    .map((entry) => parseDateSafe(entry && entry["ДатаКП"]))
+    .filter((date) => date !== null);
+
+  return {
+    key,
+    sourceIndex,
+    number: getFirstNonEmptyEntryValue(entries, "НомерКП"),
+    date: getFirstNonEmptyEntryValue(entries, "ДатаКП"),
+    client: getFirstNonEmptyEntryValue(entries, "Клиент"),
+    status: getFirstNonEmptyEntryValue(entries, "СтатусКП"),
+    sortTimestamp: dates.length > 0
+      ? Math.max(...dates.map((date) => date.getTime()))
+      : null,
+    entries: [...entries]
+  };
+}
+
+function getQuoteGroupKey(entry, index) {
+  if (!isEmptyValue(entry && entry["НомерКП"])) {
+    return `number:${String(entry["НомерКП"]).trim()}`;
+  }
+
+  const date = isEmptyValue(entry && entry["ДатаКП"]) ? "" : String(entry["ДатаКП"]).trim();
+  const client = normalizeText(entry && entry["Клиент"]);
+
+  if (date !== "" || client !== "") {
+    return `fallback:${date}|${client}`;
+  }
+
+  return `ungrouped:${index}`;
+}
+
+function groupQuoteEntries(entries) {
+  const quoteEntries = getQuoteEntries(entries);
+  const groupedEntries = new Map();
+
+  quoteEntries.forEach((entry, index) => {
+    const key = getQuoteGroupKey(entry, index);
+
+    if (!groupedEntries.has(key)) {
+      groupedEntries.set(key, {
+        entries: [],
+        sourceIndex: index
+      });
+    }
+
+    groupedEntries.get(key).entries.push(entry);
+  });
+
+  return [...groupedEntries.entries()]
+    .map(([key, group]) => createQuoteGroup(group.entries, key, group.sourceIndex))
+    .sort((left, right) => {
+      if (left.sortTimestamp !== null && right.sortTimestamp !== null) {
+        return right.sortTimestamp - left.sortTimestamp || left.sourceIndex - right.sourceIndex;
+      }
+
+      if (left.sortTimestamp !== null) {
+        return -1;
+      }
+
+      if (right.sortTimestamp !== null) {
+        return 1;
+      }
+
+      return left.sourceIndex - right.sourceIndex;
+    });
+}
+
+function getQuoteStatusClass(status) {
+  const normalizedStatus = normalizeText(status);
+
+  if (normalizedStatus === "") {
+    return "status-neutral";
+  }
+
+  const rejectedMarkers = ["отклонено", "отказ", "проиграно", "отменено"];
+  const pendingMarkers = ["на рассмотрении", "в работе", "отправлено", "ожидает", "согласование"];
+  const successMarkers = ["выполнено", "согласовано", "принято", "заказ", "выиграно"];
+
+  if (rejectedMarkers.some((marker) => normalizedStatus.includes(marker))) {
+    return "status-rejected";
+  }
+
+  if (pendingMarkers.some((marker) => normalizedStatus.includes(marker))) {
+    return "status-pending";
+  }
+
+  if (successMarkers.some((marker) => normalizedStatus.includes(marker))) {
+    return "status-success";
+  }
+
+  return "status-neutral";
 }
 
 function isEfesClient(value) {

@@ -29,8 +29,8 @@
         "Группа": ""
       },
       "expected": {
-        "lastPrice": "3357.88 EUR",
-        "averagePrice": "3357.88 EUR",
+        "lastPrice": "3 357.88 EUR",
+        "averagePrice": "3 357.88 EUR",
         "pricesCount": 1,
         "emptyFieldsShouldShow": "нет данных"
       }
@@ -106,8 +106,24 @@
         "Группа": "Тестовые данные"
       },
       "expected": {
-        "lastPrice": "9000 RUB",
-        "averagePrice": "3070.00 разные валюты",
+        "lastPrice": "9 000 Руб.",
+        "averagePrices": [
+          {
+            "currency": "EUR",
+            "value": "100.00",
+            "count": 1
+          },
+          {
+            "currency": "USD",
+            "value": "110.00",
+            "count": 1
+          },
+          {
+            "currency": "Руб.",
+            "value": "9 000.00",
+            "count": 1
+          }
+        ],
         "pricesCount": 3,
         "note": "Конвертацию валют не делать, только явно пометить разные валюты."
       }
@@ -353,8 +369,8 @@
         "Группа": "Длинные значения / UI robustness"
       },
       "expected": {
-        "lastPrice": "1500.06 EUR",
-        "averagePrice": "1250.04 EUR",
+        "lastPrice": "1 500.06 EUR",
+        "averagePrice": "1 250.04 EUR",
         "pricesCount": 6,
         "ui": "Карточки не должны вылезать за пределы popup."
       }

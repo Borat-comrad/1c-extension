@@ -102,11 +102,12 @@ function runCase(testCase) {
 
     addCheck(checks, "Бренд показан в summary", html.includes("Бренд") && html.includes("GEA Grasso"));
     addCheck(checks, "Многострочное наименование использует multiline-value", html.includes("multiline-value") && html.includes("IP65 4.....20MA"));
-    addCheck(checks, "Закупочная цена показана отдельно", html.includes("1632.80 EUR") && html.includes("purchase-price-card"));
-    addCheck(checks, "Цена КП показана отдельно", html.includes("2612 EUR") && html.includes("quote-card"));
+    addCheck(checks, "Закупочная цена показана отдельно", html.includes("1 632.80 EUR") && html.includes("purchase-price-card"));
+    addCheck(checks, "Цена КП показана отдельно", html.includes("2 612 EUR") && html.includes("quote-group-card"));
     addCheck(checks, "Дата и номер КП показаны", html.includes("2026-06-12") && html.includes("БЕВ26-КП-00008412"));
     addCheck(checks, "SAP-код объектом показан", html.includes("sap-code-card") && html.includes("Балтика группа пивоваренных компаний") && html.includes("d1.711.450.003"));
-    addCheck(checks, "Сырой JSON выключен флагом", rawHtml === "");
+    addCheck(checks, "Сырой ответ показан одним свёрнутым details", rawHtml.includes("raw-response-details") && !rawHtml.includes(" open") && countOccurrences(rawHtml, "raw-json-pre") === 1);
+    addCheck(checks, "Сырой и форматированный JSON не дублируются", !rawHtml.includes("Сырой JSON от 1С") && countOccurrences(rawHtml, "&quot;ИсторияЦен&quot;") === 1);
   }
 
   if (testCase.id === "NC02") {
